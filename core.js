@@ -214,23 +214,109 @@
     if (/^\s*مدیران/.test(n)) return 'مدیر';
     return null;
   }
+  /** کلید مقیاس از روی پیشوند پاسخ یا ستون فرم */
+  function roleKeyOf(rawAnswer, rawField) {
+    const n = normText(rawAnswer);
+    if (/^\s*(ذی\s?نفعان|ذینفعان)/.test(n)) return 'stk';
+    if (/^\s*مدیران/.test(n)) return 'mgr';
+    return rawField === 'self' ? 'self' : null;
+  }
 
-  const SCORE_TABLE = [
-    [5, ['بیش از انتظارات', 'فراتر از برنامه عملکرد', 'عملکرد فراتر از اهداف']],
-    [4, ['انتظارات را کامل و مطلوب', 'نه تنها مطلوب', 'رسیدن به تمامی اهداف', 'علاوه بر عملکرد مطلوب', '۹۰٪ - ۱۰۰٪', '90% - 100%']],
-    [3, ['تا حد خوبی', 'کار محوله را مطلوب انجام داده', 'عملکرد مطلوب در انجام مسئولیت', '۸۰٪ - ۹۰٪', '80% - 90%']],
-    [2, ['نیاز به ارتقا', 'عملکرد متوسط']],
-    [1, ['برآورده نشده', 'عملکرد ضعیف']]
-  ];
-  function scoreOf(answer) {
+  /* ---------- ۴.۱ مقیاس‌های امتیازدهی ----------
+     هر فرم مقیاس خودش را دارد و طول مقیاس‌ها برابر نیست، پس نمی‌توان سطح‌ها را
+     مستقیم با هم جمع کرد. برای هر گزینه، درصدِ آن گزینه صریحاً تعیین شده است
+     (طبق جدول ابلاغی سازمان) و ترکیب وزنی روی همین درصدها انجام می‌شود.
+
+     هر گزینه چند «کلید متنی» دارد تا هم عبارت‌های نسخهٔ فعلی فرم و هم عبارت‌های
+     نسخه‌های قبلی (که در گزارش‌های قدیمی‌تر Jira هست) شناسایی شوند.
+
+     گزینهٔ «ستارهٔ مدیریت دارایی» فرم مدیران را کمیته می‌دهد، نه مدیر مستقیم،
+     و در این ارزیابی اصلاً وارد محاسبه نمی‌شود. */
+  const SCALES = {
+    mgr: {
+      label: 'مدیر مستقیم', max: 5,
+      levels: [
+        { level: 5, pct: 100, text: 'فراتر از انتظارات عملکرد',
+          keys: ['فراتر از انتظارات عملکرد', 'فراتر از برنامه عملکرد'] },
+        { level: 4, pct: 80, text: 'کار محوله را نه تنها مطلوب انجام داده بلکه به اهداف برنامه عملکرد نیز دست یافته است',
+          keys: ['نه تنها مطلوب', 'به اهداف برنامه عملکرد'] },
+        { level: 3, pct: 60, text: 'کار محوله را به صورت مطلوب انجام داده است',
+          keys: ['کار محوله را به صورت مطلوب', 'کار محوله را مطلوب انجام داده'] },
+        { level: 2, pct: 40, text: 'نیاز به ارتقا در انجام کار محوله',
+          keys: ['نیاز به ارتقا'] },
+        { level: 1, pct: 20, text: 'عملکرد ضعیف',
+          keys: ['عملکرد ضعیف'] }
+      ],
+      excluded: ['ستاره مدیریت دارایی', 'توسط کمیته']
+    },
+    stk: {
+      label: 'ذی‌نفع', max: 4,
+      levels: [
+        { level: 4, pct: 100, text: 'بیش از انتظارات عمل کرده است', keys: ['بیش از انتظارات'] },
+        { level: 3, pct: 75, text: 'انتظارات را کامل و مطلوب انجام داده است', keys: ['انتظارات را کامل و مطلوب'] },
+        { level: 2, pct: 50, text: 'انتظارات تا حد خوبی انجام شده است', keys: ['تا حد خوبی'] },
+        { level: 1, pct: 25, text: 'انتظارات برآورده نشده است', keys: ['برآورده نشده'] }
+      ],
+      excluded: []
+    },
+    self: {
+      label: 'خودارزیابی', max: 6,
+      levels: [
+        { level: 6, pct: 100, text: 'عملکرد فراتر از اهداف و مسئولیت‌ها مطابق برنامه عملکرد',
+          keys: ['عملکرد فراتر از اهداف'] },
+        { level: 5, pct: 80, text: 'علاوه بر عملکرد مطلوب، رسیدن به تمامی اهداف برنامه عملکرد',
+          keys: ['علاوه بر عملکرد مطلوب', 'رسیدن به تمامی اهداف'] },
+        { level: 4, pct: 60, text: 'عملکرد مطلوب در انجام مسئولیت‌ها مطابق برنامه عملکرد',
+          keys: ['عملکرد مطلوب در انجام مسئولیت'] },
+        { level: 3, pct: 40, text: 'عملکرد متوسط در انجام مسئولیت‌ها مطابق برنامه عملکرد',
+          keys: ['عملکرد متوسط'] },
+        { level: 2, pct: 20, text: 'نیاز زیاد به اصلاح عملکرد در انجام مسئولیت‌ها مطابق برنامه عملکرد',
+          keys: ['نیاز زیاد به اصلاح', 'نیاز به ارتقا'] },
+        { level: 1, pct: 0, text: 'عملکرد ضعیف در انجام مسئولیت‌ها مطابق برنامه عملکرد',
+          keys: ['عملکرد ضعیف'] }
+      ],
+      excluded: [],
+      /* نسخهٔ قدیمی فرم خودارزیابی مستقیم درصد می‌پرسید */
+      direct: [[95, ['۹۰٪ - ۱۰۰٪', '90% - 100%']], [85, ['۸۰٪ - ۹۰٪', '80% - 90%']],
+               [75, ['۷۰٪ - ۸۰٪', '70% - 80%']], [65, ['۶۰٪ - ۷۰٪', '60% - 70%']]]
+    }
+  };
+  const SCALE_KEYS = ['mgr', 'stk', 'self'];
+  const has = (t, k) => t.indexOf(normText(k).replace(/‌/g, '')) !== -1;
+
+  /**
+   * پاسخ را به {level, max, pct, role} تبدیل می‌کند.
+   * roleHint: 'mgr' | 'stk' | 'self' — اگر داده نشود، از متن حدس زده می‌شود.
+   * اگر گزینه از ارزیابی کنار گذاشته شده باشد {excluded:true} برمی‌گرداند.
+   */
+  function scoreOf(answer, roleHint) {
     const t = cleanAnswer(answer).replace(/‌/g, '');
     if (!t) return null;
-    for (const [sc, keys] of SCORE_TABLE) {
-      for (const k of keys) if (t.indexOf(normText(k).replace(/‌/g, '')) !== -1) return sc;
+    const order = roleHint && SCALES[roleHint] ? [roleHint] : SCALE_KEYS;
+    for (const key of order) {
+      const sc = SCALES[key];
+      if (sc.excluded.some(k => has(t, k))) return { role: key, excluded: true, level: null, max: sc.max, pct: null };
+      if (sc.direct) {
+        for (const [p, keys] of sc.direct) if (keys.some(k => has(t, k))) return { role: key, level: null, max: sc.max, pct: p, direct: true };
+      }
+      for (const L of sc.levels) {
+        if (L.keys.some(k => has(t, k))) return { role: key, level: L.level, max: sc.max, pct: L.pct };
+      }
     }
     return null;
   }
-  const SCORE_LABEL = { 5: 'بسیار فراتر از انتظار', 4: 'مطابق انتظار و دستیابی به اهداف', 3: 'انجام قابل قبول', 2: 'نیازمند ارتقا', 1: 'ضعیف' };
+  /** فقط درصد (۰ تا ۱۰۰) یا null */
+  function pctOf(answer, roleHint) {
+    const s = scoreOf(answer, roleHint);
+    return s && !s.excluded ? s.pct : null;
+  }
+
+  /* برچسب کیفی یک درصد */
+  const PCT_LABEL = [
+    [90, 'بسیار فراتر از انتظار'], [75, 'بالاتر از انتظار'],
+    [50, 'مطابق انتظار'], [30, 'نیازمند بهبود'], [0, 'ضعیف']
+  ];
+  const scoreLabel = p => (PCT_LABEL.find(([lo]) => p >= lo) || PCT_LABEL[PCT_LABEL.length - 1])[1];
 
 
   /* ---------- ۵.۱ تحلیل متن توضیحات ---------- */
@@ -364,6 +450,8 @@
     raws.forEach(cell => {
       const raw = cell[FIELD.stake] || cell[FIELD.mgrSelf] || '';
       const comment = commentFields.map(f => cell[f]).filter(Boolean).join(' — ');
+      const rawField = cell[FIELD.stake] ? 'stake' : 'self';
+      const sc = scoreOf(raw, roleKeyOf(raw, rawField));
       records.push({
         key: cell[FIELD.key],
         created: cell[FIELD.created] || '',
@@ -372,9 +460,13 @@
         targetLat: cell[FIELD.user] || '',
         answer: cleanAnswer(raw),
         declaredRole: answerRole(raw),
-        score: scoreOf(raw),
+        roleKey: sc ? sc.role : roleKeyOf(raw, rawField),
+        level: sc && !sc.excluded ? sc.level : null,
+        levelMax: sc ? sc.max : null,
+        excluded: !!(sc && sc.excluded),
+        score: sc && !sc.excluded ? sc.pct : null,   // درصد ۰ تا ۱۰۰
         comment: comment,
-        rawField: cell[FIELD.stake] ? 'stake' : 'self'
+        rawField: rawField
       });
     });
     if (!records.length) warnings.push('هیچ آیتمی در جدول Jira خوانده نشد.');
@@ -386,13 +478,15 @@
   }
 
   /* ---------- ۷. محاسبهٔ کامل ---------- */
+  /* همهٔ آستانه‌ها بر حسب «درصد» هستند، چون نمرهٔ هر ارزیاب به درصدِ مقیاس خودش
+     تبدیل می‌شود و نمرهٔ نهایی هم درصد است. */
   const DEFAULTS = {
-    wMgr: 0.6, wStk: 0.4,          // وزن نمرهٔ مدیر و میانگین ذی‌نفعان در نمرهٔ نهایی
-    hiMean: 4.5, hiMin: 4,          // آستانهٔ «نمرهٔ بالای مشکوک»
-    loMaxScore: 2,                  // «نمرهٔ پایین» یعنی ۲ و کمتر
-    gapMgrStk: 1.5, stkRange: 2, totalRange: 2,
-    minVotes: 2, leniency: 0.4, minGiven: 3,
-    conflictHigh: 4, conflictLow: 2      // تناقض: نمرهٔ ≥۴ با متن منفی، یا نمرهٔ ≤۲ با متن مثبت
+    wMgr: 0.6, wStk: 0.4,          // وزن درصد مدیر و میانگین درصد ذی‌نفعان
+    hiMean: 85, hiMin: 75,          // «نمرهٔ بالای مشکوک»: نهایی ≥۸۵٪ و کمینه ≥۷۵٪ (دو گزینهٔ بالای هر فرم)
+    loMaxScore: 50,                 // «نمرهٔ پایین»: بالاترین درصد دریافتی ≤۵۰٪ (دو گزینهٔ پایین هر فرم)
+    gapMgrStk: 30, stkRange: 50, totalRange: 50,
+    minVotes: 2, leniency: 8, minGiven: 3, gapSelf: 30,
+    conflictHigh: 75, conflictLow: 40    // تناقض: ≥۷۵٪ با متن منفی، یا ≤۴۰٪ با متن مثبت
   };
 
   const TAGS = {
@@ -407,15 +501,17 @@
 
   /* ================= تحلیل توزیع نمرهٔ نهایی ================= */
 
-  /* باندهای عملکردی روی مقیاس ۱ تا ۵ (بازهٔ پایین بسته، بالا باز) */
+  /* باندهای عملکردی روی مقیاس درصدی (بازهٔ پایین بسته، بالا باز) */
   const BANDS = [
-    { key: 'b5', lo: 4.5, hi: 5.01, label: 'برجسته', range: '۴٫۵ و بالاتر', hint: 'فراتر از انتظار نقش' },
-    { key: 'b4', lo: 4.0, hi: 4.5, label: 'بالاتر از انتظار', range: '۴ تا ۴٫۵', hint: 'مستمراً بالای سطح انتظار' },
-    { key: 'b3', lo: 3.0, hi: 4.0, label: 'مطابق انتظار', range: '۳ تا ۴', hint: 'عملکرد مورد انتظار نقش' },
-    { key: 'b2', lo: 2.0, hi: 3.0, label: 'نیازمند بهبود', range: '۲ تا ۳', hint: 'فاصله تا سطح انتظار' },
-    { key: 'b1', lo: 0, hi: 2.0, label: 'نیازمند اقدام', range: 'زیر ۲', hint: 'نیازمند برنامهٔ اصلاحی' }
+    { key: 'b5', lo: 90, hi: 100.01, label: 'برجسته', range: '۹۰٪ و بالاتر', hint: 'فراتر از انتظار نقش' },
+    { key: 'b4', lo: 75, hi: 90, label: 'بالاتر از انتظار', range: '۷۵ تا ۹۰٪', hint: 'مستمراً بالای سطح انتظار' },
+    { key: 'b3', lo: 50, hi: 75, label: 'مطابق انتظار', range: '۵۰ تا ۷۵٪', hint: 'عملکرد مورد انتظار نقش' },
+    { key: 'b2', lo: 30, hi: 50, label: 'نیازمند بهبود', range: '۳۰ تا ۵۰٪', hint: 'فاصله تا سطح انتظار' },
+    { key: 'b1', lo: 0, hi: 30, label: 'نیازمند اقدام', range: 'زیر ۳۰٪', hint: 'نیازمند برنامهٔ اصلاحی' }
   ];
   const bandOf = v => BANDS.find(b => v >= b.lo && v < b.hi) || BANDS[BANDS.length - 1];
+  /* درصد فارسی، گرد شده */
+  const pc = x => (x === null || x === undefined) ? '—' : faDigits(Math.round(x)) + '٪';
 
   function quantile(sorted, q) {
     if (!sorted.length) return null;
@@ -441,14 +537,14 @@
     };
   }
 
-  /* هیستوگرام با گام دلخواه روی بازهٔ ۱ تا ۵ */
+  /* هیستوگرام با گام دلخواه روی بازهٔ ۰ تا ۱۰۰ درصد */
   function histogram(items, step) {
-    const st = step || 0.5, bins = [];
-    for (let x = 1; x < 5 - 1e-9; x = r2(x + st)) {
-      bins.push({ lo: r2(x), hi: r2(Math.min(5, x + st)), n: 0, names: [] });
+    const st = step || 10, bins = [];
+    for (let x = 0; x < 100 - 1e-9; x = r2(x + st)) {
+      bins.push({ lo: r2(x), hi: r2(Math.min(100, x + st)), n: 0, names: [] });
     }
     items.forEach(it => {
-      let i = Math.floor((it.v - 1) / st);
+      let i = Math.floor(it.v / st);
       if (i < 0) i = 0; if (i >= bins.length) i = bins.length - 1;
       bins[i].n++; bins[i].names.push(it.name);
     });
@@ -467,7 +563,7 @@
    * opts.approvedOf(person) → عدد یا null (نمرهٔ تأییدشده در کالیبراسیون)
    */
   function distribution(people, opts) {
-    const o = Object.assign({ step: 0.5, inflateBand: 4, inflateShare: 0.6, tightSd: 0.45, wideSd: 0.9, mode: 'calc' }, opts || {});
+    const o = Object.assign({ step: 10, inflateBand: 75, inflateShare: 0.6, tightSd: 11, wideSd: 22, mode: 'calc' }, opts || {});
     const isApproved = o.mode === 'approved';
     const approvedOf = o.approvedOf || (() => null);
 
@@ -490,7 +586,7 @@
       const list = items.filter(i => i.v >= b.lo && i.v < b.hi);
       return Object.assign({}, b, {
         n: list.length, share: st ? list.length / st.n : 0,
-        names: list.sort((a, b2) => b2.v - a.v).map(i => i.name + ' (' + faDigits(i.v.toFixed(2)).replace(/\./g, '٫') + ')')
+        names: list.sort((a, b2) => b2.v - a.v).map(i => i.name + ' (' + pc(i.v) + ')')
       });
     });
 
@@ -517,7 +613,7 @@
 
     /* شکل توزیع */
     const topShare = bands.filter(b => b.lo >= o.inflateBand).reduce((s, b) => s + b.share, 0);
-    const nearMean = items.filter(i => Math.abs(i.v - st.mean) <= 0.5).length / st.n;
+    const nearMean = items.filter(i => Math.abs(i.v - st.mean) <= 10).length / st.n;
     const biggest = bins.reduce((a, b) => b.n > a.n ? b : a, bins[0]);
     const shape = {
       spread: st.sd <= o.tightSd ? 'tight' : st.sd >= o.wideSd ? 'wide' : 'normal',
@@ -532,42 +628,44 @@
 
     /* ---- جملات تحلیلی ---- */
     const ins = [];
-    const P = x => faDigits(Math.round(x * 100)) + '٪';
-    const N = (x, d) => faDigits(Number(x).toFixed(d === undefined ? 2 : d)).replace(/\./g, '٫');
+    const P = x => faDigits(Math.round(x * 100)) + '٪';       // نسبتِ ۰..۱ → درصد
+    const N = x => pc(x);                                      // نمرهٔ درصدی
+    const D = x => faDigits(Number(x).toFixed(2)).replace(/\./g, '٫');  // عدد اعشاری ساده
+    const U = x => faDigits(Math.round(x)) + ' واحد درصد';
 
     ins.push({
       kind: 'info', title: 'مرکز توزیع',
       text: `نمرهٔ نهایی برای ${faDigits(st.n)} نفر محاسبه شده است. میانگین ${N(st.mean)} و میانه ${N(st.median)} است؛ ` +
-        (Math.abs(st.mean - st.median) < 0.1
+        (Math.abs(st.mean - st.median) < 2
           ? 'نزدیکی این دو یعنی نمرهٔ چند نفر خاص، تصویر کلی را جابه‌جا نکرده است.'
-          : `فاصلهٔ ${N(Math.abs(st.mean - st.median))} میان آن‌ها یعنی چند نمرهٔ ${st.mean < st.median ? 'پایین' : 'بالا'} میانگین را نسبت به وضعیت اکثریت ${st.mean < st.median ? 'پایین' : 'بالا'} کشیده‌اند.`) +
+          : `فاصلهٔ ${U(Math.abs(st.mean - st.median))} میان آن‌ها یعنی چند نمرهٔ ${st.mean < st.median ? 'پایین' : 'بالا'} میانگین را نسبت به وضعیت اکثریت ${st.mean < st.median ? 'پایین' : 'بالا'} کشیده‌اند.`) +
         ` نیمهٔ میانی افراد بین ${N(st.q1)} تا ${N(st.q3)} قرار دارند.`
     });
 
     if (shape.spread === 'tight') {
       ins.push({
         kind: 'warn', title: 'فشردگی نمرات',
-        text: `انحراف معیار فقط ${N(st.sd)} است و ${P(shape.nearMean)} افراد در فاصلهٔ نیم‌نمره‌ای از میانگین جمع شده‌اند. ` +
+        text: `انحراف معیار فقط ${U(st.sd)} است و ${P(shape.nearMean)} افراد در فاصلهٔ ده واحدی از میانگین جمع شده‌اند. ` +
           `عملاً همهٔ نمرات یک عدد را تکرار می‌کنند و این توزیع برای تصمیم‌هایی مثل ارتقا یا پاداش، قدرت تفکیک لازم را ندارد. ` +
           `در جلسهٔ کالیبراسیون لازم است ارزیاب‌ها تفاوت‌های واقعی را صریح‌تر بیان کنند.`
       });
     } else if (shape.spread === 'wide') {
       ins.push({
         kind: 'warn', title: 'پراکندگی زیاد',
-        text: `انحراف معیار ${N(st.sd)} و دامنه از ${N(st.min)} تا ${N(st.max)} است. این پراکندگی یا واقعاً تفاوت عملکردی بزرگی را نشان می‌دهد، ` +
+        text: `انحراف معیار ${U(st.sd)} و دامنه از ${N(st.min)} تا ${N(st.max)} است. این پراکندگی یا واقعاً تفاوت عملکردی بزرگی را نشان می‌دهد، ` +
           `یا نشانهٔ آن است که ارزیاب‌ها معیار مشترکی از «سطح انتظار» ندارند. پیش از استفاده از این نمرات، تب «ارزیاب‌ها» را برای تشخیص سخت‌گیرها و سهل‌گیرها ببینید.`
       });
     } else {
       ins.push({
         kind: 'ok', title: 'پراکندگی متعارف',
-        text: `انحراف معیار ${N(st.sd)} در محدودهٔ سالم است؛ نمرات نه آن‌قدر فشرده‌اند که تفکیک‌ناپذیر شوند و نه آن‌قدر پراکنده که به بی‌معیاری ارزیاب‌ها مشکوک شویم.`
+        text: `انحراف معیار ${U(st.sd)} در محدودهٔ سالم است؛ نمرات نه آن‌قدر فشرده‌اند که تفکیک‌ناپذیر شوند و نه آن‌قدر پراکنده که به بی‌معیاری ارزیاب‌ها مشکوک شویم.`
       });
     }
 
     if (Math.round(topShare * 100) >= Math.round(o.inflateShare * 100)) {
       ins.push({
         kind: 'bad', title: 'نشانهٔ تورم نمره',
-        text: `${P(topShare)} افراد نمرهٔ ${faDigits(o.inflateBand)} یا بالاتر گرفته‌اند. وقتی اکثریت در بالاترین باندها جمع می‌شوند، نمره دیگر عملکرد را از هم جدا نمی‌کند ` +
+        text: `${P(topShare)} افراد نمرهٔ ${pc(o.inflateBand)} یا بالاتر گرفته‌اند. وقتی اکثریت در بالاترین باندها جمع می‌شوند، نمره دیگر عملکرد را از هم جدا نمی‌کند ` +
           `و بیشتر بازتاب فرهنگ تعارف در ارزیابی است تا تفاوت واقعی. توصیه می‌شود در جلسهٔ کالیبراسیون، رتبه‌بندی نسبی افراد هم‌نقش بررسی شود، نه فقط عدد مطلق.`
       });
     }
@@ -576,15 +674,15 @@
       ins.push({
         kind: 'info', title: 'شکل توزیع: ' + SHAPE[shape.skewDir],
         text: shape.skewDir === 'left'
-          ? `توده نمرات در سمت بالا جمع شده و دم توزیع به سمت پایین کشیده شده (شاخص چولگی ${N(Math.abs(st.skew))} به چپ). یعنی اکثریت نمرهٔ بالایی دارند و تعداد کمی به‌وضوح پایین‌تر هستند؛ همان چند نفر معمولاً موضوع اصلی جلسهٔ کالیبراسیون‌اند.`
-          : `توده نمرات در سمت پایین جمع شده و دم توزیع به سمت بالا کشیده شده (شاخص چولگی ${N(Math.abs(st.skew))} به راست). یعنی اکثریت در سطح میانی یا پایین‌اند و تعداد کمی به‌وضوح بالاتر؛ بررسی کنید آیا این چند نفر واقعاً متمایزند یا ارزیاب متفاوتی داشته‌اند.`
+          ? `توده نمرات در سمت بالا جمع شده و دم توزیع به سمت پایین کشیده شده (شاخص چولگی ${D(Math.abs(st.skew))} به چپ). یعنی اکثریت نمرهٔ بالایی دارند و تعداد کمی به‌وضوح پایین‌تر هستند؛ همان چند نفر معمولاً موضوع اصلی جلسهٔ کالیبراسیون‌اند.`
+          : `توده نمرات در سمت پایین جمع شده و دم توزیع به سمت بالا کشیده شده (شاخص چولگی ${D(Math.abs(st.skew))} به راست). یعنی اکثریت در سطح میانی یا پایین‌اند و تعداد کمی به‌وضوح بالاتر؛ بررسی کنید آیا این چند نفر واقعاً متمایزند یا ارزیاب متفاوتی داشته‌اند.`
       });
     }
 
     if (shape.biggest && st.n && shape.biggest.n / st.n >= 0.4) {
       ins.push({
         kind: 'warn', title: 'تمرکز در یک بازه',
-        text: `${P(shape.biggest.n / st.n)} افراد (${faDigits(shape.biggest.n)} نفر) در همان بازهٔ ${N(shape.biggest.lo, 1)} تا ${N(shape.biggest.hi, 1)} قرار گرفته‌اند. ` +
+        text: `${P(shape.biggest.n / st.n)} افراد (${faDigits(shape.biggest.n)} نفر) در همان بازهٔ ${N(shape.biggest.lo)} تا ${N(shape.biggest.hi)} قرار گرفته‌اند. ` +
           `درون این گروه، نمره تقریباً هیچ تمایزی ایجاد نمی‌کند و برای تصمیم‌گیری باید به متن نظرها و تگ‌ها تکیه کرد.`
       });
     }
@@ -602,11 +700,11 @@
     }
 
     const flaggedTop = items.filter(i => i.v >= o.inflateBand && i.tags.indexOf(TAGS.HIGH) !== -1).length;
-    const flaggedLow = items.filter(i => i.v <= 2.5 && i.tags.indexOf(TAGS.LOW) !== -1).length;
+    const flaggedLow = items.filter(i => i.v <= 40 && i.tags.indexOf(TAGS.LOW) !== -1).length;
     const flaggedDiff = items.filter(i => i.tags.indexOf(TAGS.DIFF) !== -1).length;
     if (flaggedTop || flaggedLow || flaggedDiff) {
       const part = [];
-      if (flaggedTop) part.push(`${faDigits(flaggedTop)} نفر از افراد بالای ${faDigits(o.inflateBand)} تگ «${TAGS.HIGH}» دارند`);
+      if (flaggedTop) part.push(`${faDigits(flaggedTop)} نفر از افراد بالای ${pc(o.inflateBand)} تگ «${TAGS.HIGH}» دارند`);
       if (flaggedLow) part.push(`${faDigits(flaggedLow)} نفر در باندهای پایین تگ «${TAGS.LOW}» دارند`);
       if (flaggedDiff) part.push(`${faDigits(flaggedDiff)} نفر تگ «${TAGS.DIFF}» دارند که نمرهٔ نهایی‌شان میانگین دو نگاه متفاوت است`);
       ins.push({
@@ -633,7 +731,7 @@
         kind: calib.changed ? 'info' : 'ok', title: 'اثر کالیبراسیون',
         text: `برای ${faDigits(calib.decided)} نفر تصمیم ثبت شده است` +
           (calib.changed
-            ? `، که نمرهٔ ${faDigits(calib.changed)} نفرشان در جلسه تغییر کرده و میانگین تأییدشده ${calib.shift >= 0 ? 'به‌اندازهٔ ' + N(Math.abs(calib.shift)) + ' بالاتر' : 'به‌اندازهٔ ' + N(Math.abs(calib.shift)) + ' پایین‌تر'} از نمرهٔ محاسبه‌شده است. اگر این جابه‌جایی یک‌طرفه و بزرگ باشد، یعنی فرمول با قضاوت واقعی مدیران هم‌راستا نیست و بهتر است وزن‌ها بازبینی شود.`
+            ? `، که نمرهٔ ${faDigits(calib.changed)} نفرشان در جلسه تغییر کرده و میانگین تأییدشده ${calib.shift >= 0 ? 'به‌اندازهٔ ' + U(Math.abs(calib.shift)) + ' بالاتر' : 'به‌اندازهٔ ' + U(Math.abs(calib.shift)) + ' پایین‌تر'} از نمرهٔ محاسبه‌شده است. اگر این جابه‌جایی یک‌طرفه و بزرگ باشد، یعنی فرمول با قضاوت واقعی مدیران هم‌راستا نیست و بهتر است وزن‌ها بازبینی شود.`
             : ` و هیچ‌کدام تغییر نکرده‌اند؛ یعنی خروجی فرمول با قضاوت جلسه هم‌خوان بوده است.`)
       });
     } else {
@@ -674,9 +772,12 @@
     records.forEach(r => { if (r.date) yearsSeen[r.date.jy] = (yearsSeen[r.date.jy] || 0) + 1; });
     const inYear = r => !years || !r.date || years.indexOf(r.date.jy) !== -1;
 
-    const kept = [], dropped = [], unknownAnswers = {};
+    const kept = [], dropped = [], unknownAnswers = {}, excludedAnswers = {};
     records.forEach(r => {
-      if (r.answer && r.score === null) unknownAnswers[r.answer] = (unknownAnswers[r.answer] || 0) + 1;
+      if (r.answer && r.score === null) {
+        const bag = r.excluded ? excludedAnswers : unknownAnswers;
+        bag[r.answer] = (bag[r.answer] || 0) + 1;
+      }
       (inYear(r) ? kept : dropped).push(r);
     });
 
@@ -688,13 +789,16 @@
       if (r.targetLat) {
         const tgt = nameMap[r.targetLat]; if (!tgt) return;
         const k = tgt + '|' + rev;
-        const cur = fb.get(k) || { texts: [], scores: [], keys: [], dates: [], comments: [] };
+        const cur = fb.get(k) || { texts: [], scores: [], keys: [], dates: [], comments: [], levels: [], roleKeys: [] };
         cur.texts.push(r.answer); if (r.score !== null) cur.scores.push(r.score);
+        if (r.level !== null && r.level !== undefined) cur.levels.push({ level: r.level, max: r.levelMax });
+        if (r.roleKey) cur.roleKeys.push(r.roleKey);
         cur.keys.push(r.key); if (r.date) cur.dates.push(r.date.label);
         if (r.comment) cur.comments.push(r.comment);
         fb.set(k, cur);
       } else {
-        selfMap.set(rev, { text: r.answer, score: r.score, key: r.key, date: r.date ? r.date.label : '', comment: r.comment || '' });
+        selfMap.set(rev, { text: r.answer, score: r.score, level: r.level, levelMax: r.levelMax,
+                           key: r.key, date: r.date ? r.date.label : '', comment: r.comment || '' });
       }
     });
 
@@ -719,9 +823,13 @@
         const sc = got.scores.length ? r2(mean(got.scores)) : null;
         const conflict = !!(sent && sc !== null &&
           ((sc >= o.conflictHigh && sent.lean === 'neg') || (sc <= o.conflictLow && sent.lean === 'pos')));
+        const lv = got.levels.length === 1 ? got.levels[0] : null;
         return Object.assign({}, rv, {
           state: 'done', text: got.texts.join(' ؛ '),
           score: sc, comment, sent, conflict,
+          level: lv ? lv.level : null, levelMax: lv ? lv.max : null,
+          roleKey: got.roleKeys[0] || null,
+          excludedOnly: !got.scores.length,
           count: got.texts.length, keys: got.keys, dates: got.dates
         });
       });
@@ -762,33 +870,33 @@
         why.push(assigned ? `هیچ‌کدام از ${faDigits(assigned)} ارزیاب تعیین‌شده نظری ثبت نکرده‌اند.` : 'برای این همکار ارزیابی تعیین نشده است.');
       } else if (n < o.minVotes) {
         tags.push(TAGS.THIN);
-        why.push(`فقط یک نظر ثبت شده (نمرهٔ ${faDigits(vals[0])}) و با یک داده نمی‌توان الگوی مشکوک را تشخیص داد.`);
+        why.push(`فقط یک نظر ثبت شده (${pc(vals[0])}) و با یک داده نمی‌توان الگوی مشکوک را تشخیص داد.`);
       } else {
         const stkMean = stkScores.length ? mean(stkScores) : null;
         const gapMS = (mgrScore !== null && stkMean !== null) ? Math.abs(mgrScore - stkMean) : 0;
         const stkRange = stkScores.length > 1 ? Math.max(...stkScores) - Math.min(...stkScores) : 0;
         if (final >= o.hiMean && min >= o.hiMin) {
           tags.push(TAGS.HIGH);
-          why.push(`هر ${faDigits(n)} ارزیاب دست‌کم نمرهٔ ${faDigits(min)} داده‌اند و نمرهٔ نهایی او ${faDigits(final.toFixed(2))} شده، در حالی که میانگین کل سازمان ${faDigits(pop.toFixed(2))} است.`);
-          why.push('اتفاق‌نظر کامل روی بالاترین سطوح، بدون هیچ نمرهٔ میانی، الگوی رایج «نمره‌دهی تعارفی» است و بهتر است با شواهد عملکردی راستی‌آزمایی شود.');
+          why.push(`هر ${faDigits(n)} ارزیاب دست‌کم ${pc(min)} داده‌اند و نمرهٔ نهایی او ${pc(final)} شده، در حالی که میانگین کل سازمان ${pc(pop)} است.`);
+          why.push('اتفاق‌نظر کامل روی بالاترین گزینه‌ها، بدون هیچ گزینهٔ میانی، الگوی رایج «نمره‌دهی تعارفی» است و بهتر است با شواهد عملکردی راستی‌آزمایی شود.');
         }
         if (max <= o.loMaxScore) {
           tags.push(TAGS.LOW);
-          why.push(`هر ${faDigits(n)} ارزیاب نمرهٔ ${faDigits(o.loMaxScore)} یا پایین‌تر داده‌اند (بالاترین نمرهٔ دریافتی ${faDigits(max)}) و نمرهٔ نهایی او ${faDigits(final.toFixed(2))} است.`);
+          why.push(`هر ${faDigits(n)} ارزیاب یکی از دو گزینهٔ پایینِ فرم خود را انتخاب کرده‌اند (بالاترین نمرهٔ دریافتی ${pc(max)}) و نمرهٔ نهایی او ${pc(final)} است.`);
           why.push('وقتی همهٔ ارزیاب‌ها هم‌زمان پایین می‌دهند، یا مسئلهٔ واقعی عملکردی وجود دارد یا انتظارات نقش از ابتدا شفاف نبوده؛ هر دو حالت نیاز به گفت‌وگوی جداگانه دارد.');
         }
         if (range >= o.totalRange || gapMS >= o.gapMgrStk || stkRange >= o.stkRange) {
           tags.push(TAGS.DIFF);
           const parts = [];
-          if (gapMS >= o.gapMgrStk) parts.push(`نمرهٔ مدیر مستقیم (${faDigits(mgrScore)}) با میانگین ذی‌نفعان (${faDigits(stkMean.toFixed(2))}) حدود ${faDigits(gapMS.toFixed(1))} نمره فاصله دارد`);
-          if (stkRange >= o.stkRange) parts.push(`ذی‌نفعان خودشان از ${faDigits(Math.min(...stkScores))} تا ${faDigits(Math.max(...stkScores))} پراکنده‌اند`);
-          if (!parts.length) parts.push(`نمره‌ها از ${faDigits(min)} تا ${faDigits(max)} پخش شده‌اند`);
+          if (gapMS >= o.gapMgrStk) parts.push(`نمرهٔ مدیر مستقیم (${pc(mgrScore)}) با میانگین ذی‌نفعان (${pc(stkMean)}) حدود ${faDigits(Math.round(gapMS))} واحد درصد فاصله دارد`);
+          if (stkRange >= o.stkRange) parts.push(`ذی‌نفعان خودشان از ${pc(Math.min(...stkScores))} تا ${pc(Math.max(...stkScores))} پراکنده‌اند`);
+          if (!parts.length) parts.push(`نمره‌ها از ${pc(min)} تا ${pc(max)} پخش شده‌اند`);
           why.push(parts.join(' و ') + '.');
           why.push('این واگرایی معمولاً یعنی عملکرد او در تعامل‌های مختلف یکسان تجربه نشده؛ پیش از جمع‌بندی نمره لازم است دلیل اختلاف از خود ارزیاب‌ها پرسیده شود.');
         }
         if (!tags.length) {
           tags.push(TAGS.OK);
-          why.push(`نمرهٔ نهایی ${faDigits(final.toFixed(2))} با دامنهٔ ${faDigits(range)} در محدودهٔ طبیعی سازمان قرار دارد و ارزیاب‌ها تصویر هم‌راستایی از او داده‌اند.`);
+          why.push(`نمرهٔ نهایی ${pc(final)} با دامنهٔ ${faDigits(Math.round(range))} واحد درصد در محدودهٔ طبیعی سازمان قرار دارد و ارزیاب‌ها تصویر هم‌راستایی از او داده‌اند.`);
         }
       }
       const withText = cells.filter(c => c.state === 'done' && c.comment);
@@ -796,11 +904,11 @@
       if (conflicts.length) {
         tags.push(TAGS.CONFLICT);
         const one = conflicts[0];
-        why.push(`${conflicts.length > 1 ? faDigits(conflicts.length) + ' ارزیاب' : one.name} نمره و متن ناهم‌خوان داده‌اند — برای نمونه نمرهٔ ${faDigits(one.score)} در کنار توضیحی با بار ${one.sent.lean === 'neg' ? 'منفی' : 'مثبت'} («${one.sent.hits.slice(0, 3).map(h => h.w).join('، ')}»).`);
+        why.push(`${conflicts.length > 1 ? faDigits(conflicts.length) + ' ارزیاب' : one.name} نمره و متن ناهم‌خوان داده‌اند — برای نمونه نمرهٔ ${pc(one.score)} در کنار توضیحی با بار ${one.sent.lean === 'neg' ? 'منفی' : 'مثبت'} («${one.sent.hits.slice(0, 3).map(h => h.w).join('، ')}»).`);
         why.push('این ناهم‌خوانی معمولاً یعنی ارزیاب حرف واقعی‌اش را در متن نوشته ولی در گزینه محافظه‌کاری کرده؛ متن را مبنا بگیرید، نه گزینه را.');
       }
-      if (gapSelf !== null && Math.abs(gapSelf) >= 1.5) {
-        why.push(`ضمناً خودارزیابی او (${faDigits(self.score)}) حدود ${faDigits(Math.abs(gapSelf))} نمره ${gapSelf > 0 ? 'بالاتر از' : 'پایین‌تر از'} میانگین نظر دیگران است.`);
+      if (gapSelf !== null && Math.abs(gapSelf) >= o.gapSelf) {
+        why.push(`ضمناً خودارزیابی او (${pc(self.score)}) حدود ${faDigits(Math.round(Math.abs(gapSelf)))} واحد درصد ${gapSelf > 0 ? 'بالاتر از' : 'پایین‌تر از'} نمرهٔ نهایی اوست.`);
       }
       if (n && done < assigned) {
         why.push(`توجه: از ${faDigits(assigned)} ارزیاب تعیین‌شده تنها ${faDigits(done)} نفر نظر داده‌اند، پس تحلیل بر دادهٔ ناقص استوار است.`);
@@ -848,8 +956,10 @@
       if (c.conflict) cConflict++;
     }));
 
-    const dist = { 1: 0, 2: 0, 3: 0, 4: 0, 5: 0 };
-    allScores.forEach(s => { dist[s]++; });
+    /* توزیع درصد تک‌تک نظرها، در همان پنج باند عملکردی */
+    const dist = {};
+    BANDS.forEach(b => { dist[b.key] = 0; });
+    allScores.forEach(s => { dist[bandOf(s).key]++; });
     const tagCount = {};
     TAG_ORDER.forEach(t => { tagCount[t] = 0; });
     people.forEach(p => p.tags.forEach(t => { tagCount[t]++; }));
@@ -859,7 +969,7 @@
 
     return {
       people: people.slice().sort((a, b) => TAG_ORDER.indexOf(a.tag) - TAG_ORDER.indexOf(b.tag) || (b.final ?? -1) - (a.final ?? -1)),
-      peopleByRow: people, pending, reviewers, dropped, unmatched, unknownAnswers,
+      peopleByRow: people, pending, reviewers, dropped, unmatched, unknownAnswers, excludedAnswers,
       selfCount: selfMap.size, yearsSeen, canonMap: canon, nameMap,
       stats: { pop: r2(pop), dist, tagCount, totalAssigned, totalDone,
                withText: cWith, avgLen: cWith ? Math.round(cLen / cWith) : 0,
@@ -872,7 +982,7 @@
 
   return { normText, faDigits, enDigits, tokensFa, tokensLat, simLatFa, simFaFa, canonicalMap, bestFaFor,
            sentiment, LEAN_LABEL,
-           toJalali, parseJiraDate, scoreOf, cleanAnswer, SCORE_LABEL,
+           toJalali, parseJiraDate, scoreOf, pctOf, roleKeyOf, cleanAnswer, scoreLabel, SCALES, pc,
            parseStakeholders, parseJiraDoc, parseJiraHtml, compute, TAGS, TAG_ORDER, DEFAULTS,
            distribution, describe, histogram, quantile, BANDS, bandOf, SHAPE };
 });

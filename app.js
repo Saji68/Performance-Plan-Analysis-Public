@@ -20,6 +20,12 @@
   const fa = C.faDigits;
   const num = (v, d) => (v === null || v === undefined) ? '—' : fa(d === undefined ? String(v) : Number(v).toFixed(d));
   const pct = v => fa(Math.round(v * 100)) + '٪';
+  /* نمرهٔ درصدی ۰..۱۰۰ */
+  const pv = v => (v === null || v === undefined) ? '—' : fa(Math.round(v)) + '٪';
+  /* عدد درصدی بدون علامت (برای دامنه و انحراف، که «واحد درصد»اند نه درصد) */
+  const pu = v => (v === null || v === undefined) ? '—' : fa(Math.round(v));
+  /* کلاس رنگی نقطهٔ نمره از روی درصد */
+  const dotClass = p => p >= 90 ? 's5' : p >= 75 ? 's4' : p >= 50 ? 's3' : p >= 30 ? 's2' : 's1';
 
   const STORE = 'mofid-hamkari-v1';
   const TAGCLASS = {
@@ -74,10 +80,15 @@
     ];
     const records = R.map((r, i) => {
       const raw = r[2];
+      const rawField = r[1] ? 'stake' : 'self';
+      const sc = C.scoreOf(raw, C.roleKeyOf(raw, rawField));
       return {
         key: 'DEMO-' + (100 + i), created: r[3] + ' 10:00 AM', date: C.parseJiraDate(r[3]),
         reporterLat: r[0], targetLat: r[1], answer: C.cleanAnswer(raw),
-        declaredRole: null, score: C.scoreOf(raw), comment: r[4] || '', rawField: 'stake'
+        declaredRole: null, roleKey: sc ? sc.role : null,
+        level: sc && !sc.excluded ? sc.level : null, levelMax: sc ? sc.max : null,
+        excluded: !!(sc && sc.excluded),
+        score: sc && !sc.excluded ? sc.pct : null, comment: r[4] || '', rawField: rawField
       };
     });
     return { people, records, meta: { xlsx: 'دادهٔ نمونه', html: 'دادهٔ نمونه', demo: true, commentLabels: ['توضیحات (نمونه)'] } };
@@ -113,6 +124,38 @@
       }));
     } catch (e) { /* حافظهٔ مرورگر در دسترس نیست — مشکلی نیست */ }
   }
+  /* نسخهٔ قبلی داشبورد نمره را روی مقیاس ۱ تا ۵ نگه می‌داشت؛ نمرات تأییدشدهٔ
+     ذخیره‌شده در مرورگر یک‌بار به درصد تبدیل می‌شوند تا معنایشان عوض نشود. */
+  /* نمرهٔ رکوردهای ذخیره‌شده همیشه از روی متن پاسخ دوباره ساخته می‌شود، تا اگر
+     مقیاس امتیازدهی عوض شد، دادهٔ قدیمیِ مرورگر یا data.json هم به‌روز شود. */
+  const ROLE_OF = { 'مدیر': 'mgr', 'ذی‌نفع': 'stk' };
+  function rescoreRecords() {
+    (S.records || []).forEach(r => {
+      const role = ROLE_OF[r.declaredRole] || (r.rawField === 'self' ? 'self' : null);
+      const sc = C.scoreOf(r.answer, role);
+      r.roleKey = sc ? sc.role : role;
+      r.level = sc && !sc.excluded ? sc.level : null;
+      r.levelMax = sc ? sc.max : null;
+      r.excluded = !!(sc && sc.excluded);
+      r.score = sc && !sc.excluded ? sc.pct : null;
+    });
+  }
+
+  function migrateScale() {
+    if (S.meta && S.meta.scoreScale === 'pct') return;
+    let n = 0;
+    Object.keys(S.decisions || {}).forEach(k => {
+      const d = S.decisions[k];
+      if (d && d.status === 'changed' && typeof d.score === 'number' && d.score > 0 && d.score <= 6) {
+        d.score = Math.round((d.score - 1) / 4 * 100);
+        if (d.score < 0) d.score = 0;
+        n++;
+      }
+    });
+    S.meta = Object.assign({}, S.meta, { scoreScale: 'pct' });
+    if (n) setTimeout(() => note(`${fa(n)} نمرهٔ تأییدشده از مقیاس ۱ تا ۵ به درصد تبدیل شد؛ لطفاً درستی‌شان را بررسی کنید.`), 400);
+  }
+
   function load() {
     try {
       const raw = localStorage.getItem(STORE);
@@ -122,6 +165,7 @@
       S.people = d.people; S.records = d.records; S.meta = d.meta || {};
       S.years = d.years || null; S.overrides = d.overrides || {}; S.decisions = d.decisions || {};
       S.basedOn = d.basedOn || null;
+      rescoreRecords(); migrateScale();
       return true;
     } catch (e) { return false; }
   }
@@ -341,7 +385,7 @@
       k.appendChild(tr);
       box.appendChild(k);
     } else {
-      box.appendChild(kpi('میانگین نمرهٔ سازمان', num(st.pop, 2), 'روی مقیاس ۱ تا ۵'));
+      box.appendChild(kpi('میانگین نمرهٔ سازمان', pv(st.pop), 'میانگین درصد تک‌تک نظرها'));
     }
     box.appendChild(kpi('نظرهای ثبت‌نشده', fa(st.totalAssigned - st.totalDone), `${fa(S.res.pending.length)} مورد در انتظار`, st.totalAssigned - st.totalDone > 0));
     box.appendChild(kpi('موارد مشکوک', fa(flagged), 'نیازمند بررسی انسانی', flagged > 0));
@@ -351,20 +395,21 @@
     const st = S.res.stats;
     const box = $('#dist'); box.innerHTML = '';
     const max = Math.max.apply(null, [1].concat(Object.values(st.dist)));
-    [5, 4, 3, 2, 1].forEach(s => {
-      const n = st.dist[s] || 0;
-      const bar = el('div', { class: 'bar b' + s, title: `${C.SCORE_LABEL[s]} — ${fa(n)} نظر` });
+    const bandNo = { b1: 1, b2: 2, b3: 3, b4: 4, b5: 5 };
+    C.BANDS.forEach(b => {      /* از بالا به پایین؛ در RTL یعنی محور از چپ (کم) به راست (زیاد) */
+      const n = st.dist[b.key] || 0;
+      const bar = el('div', { class: 'bar b' + bandNo[b.key], title: `${b.label} (${b.range}) — ${fa(n)} نظر` });
       bar.style.height = Math.max(2, (n / max) * 88) + '%';
       box.appendChild(el('div', { class: 'col' }, [
-        el('div', { class: 'n', text: fa(n) }), bar, el('div', { class: 'lbl', text: fa(s) })
+        el('div', { class: 'n', text: fa(n) }), bar, el('div', { class: 'lbl', text: b.range })
       ]));
     });
-    const modal = Object.keys(st.dist).reduce((a, k) => st.dist[k] > st.dist[a] ? k : a, '4');
-    $('#distHint').textContent = `${fa(st.comments)} نظر روی مقیاس ۱ تا ۵.`;
+    const modal = C.BANDS.reduce((a, b) => (st.dist[b.key] || 0) > (st.dist[a.key] || 0) ? b : a, C.BANDS[0]);
+    $('#distHint').textContent = `${fa(st.comments)} نظر، هرکدام به درصدِ مقیاس فرم خودش.`;
     $('#distAvg').innerHTML = '';
-    $('#distAvg').appendChild(el('span', { text: `میانگین سازمان: ${num(st.pop, 2)}` }));
+    $('#distAvg').appendChild(el('span', { text: `میانگین سازمان: ${pv(st.pop)}` }));
     $('#distAvg').appendChild(el('span', {
-      text: `پرتکرارترین نمره: ${fa(modal)} (${pct((st.dist[modal] || 0) / Math.max(1, st.comments))} از کل)`
+      text: `پرتکرارترین باند: ${modal.label} (${pct((st.dist[modal.key] || 0) / Math.max(1, st.comments))} از کل)`
     }));
 
     const tb = $('#tagbars'); tb.innerHTML = '';
@@ -439,8 +484,14 @@
   function dotEl(cell) {
     if (cell.state === 'none') return el('span', { class: 'dot none', text: '·', title: 'ارزیاب تعیین نشده' });
     if (cell.state === 'missing') return el('span', { class: 'dot miss', text: '', title: cell.name + ' — نظر ثبت نشده' });
-    const s = cell.score === null ? 3 : Math.round(cell.score);
-    return el('span', { class: 'dot s' + s, text: fa(cell.score === null ? '?' : cell.score), title: `${cell.name} — ${cell.text}` });
+    if (cell.score === null) return el('span', { class: 'dot none', text: '—', title: `${cell.name} — ${cell.text}` });
+    const lvl = cell.level !== null && cell.level !== undefined;
+    return el('span', {
+      class: 'dot ' + dotClass(cell.score),
+      text: lvl ? fa(cell.level) : '٪',
+      title: `${cell.name} — ${cell.text}\n` +
+             (lvl ? `گزینهٔ ${fa(cell.level)} از ${fa(cell.levelMax)} → ${pv(cell.score)}` : pv(cell.score))
+    });
   }
   function table(headers, rows) {
     const thead = el('thead', null, [el('tr', null, headers.map(h =>
@@ -468,8 +519,8 @@
     const sel = el('select', { class: 'sel-dec', 'aria-label': 'وضعیت نمرهٔ نهایی ' + pp.name, onclick: stop });
     DECISIONS.forEach(o => sel.appendChild(el('option', { value: o.v, text: o.label, selected: o.v === d.status ? 'selected' : null })));
     const inp = el('input', {
-      class: 'inp-score', type: 'number', min: '0', max: '5', step: '0.1', onclick: stop,
-      'aria-label': 'نمرهٔ نهایی تأییدشده ' + pp.name,
+      class: 'inp-score', type: 'number', min: '0', max: '100', step: '1', onclick: stop,
+      'aria-label': 'نمرهٔ نهایی تأییدشدهٔ ' + pp.name + ' بر حسب درصد', placeholder: 'درصد (۰ تا ۱۰۰)',
       value: d.score === null || d.score === undefined ? '' : d.score
     });
     function paint() {
@@ -478,7 +529,7 @@
       out.textContent = '';
       out.appendChild(el('span', {
         class: 'finalv' + (ap === null ? ' off' : (dd.status === 'changed' ? ' changed' : ' okv')),
-        text: ap === null ? '—' : fa(Number(ap).toFixed(2))
+        text: ap === null ? '—' : pv(ap)
       }));
       const sum = document.getElementById('decSummary');
       if (sum) sum.textContent = `نمرهٔ نهایی برای ${fa(decidedCount())} نفر از ${fa(S.res.people.length)} تعیین‌تکلیف شده.`;
@@ -506,10 +557,10 @@
     const rows = list.map(pp => el('tr', { class: 'clickable', onclick: () => openDrawer(pp) }, [
       el('td', { class: 'nm', text: pp.name }),
       el('td', { class: 'num' }, [el('span', { class: 'dots' }, pp.cells.map(dotEl))]),
-      el('td', { class: 'num', text: num(pp.mgrScore) }),
-      el('td', { class: 'num', text: num(pp.stkMean, pp.stkMean === null ? undefined : 2) }),
-      el('td', { class: 'num calc', text: num(pp.final, pp.final === null ? undefined : 2) }),
-      el('td', { class: 'num', text: num(pp.range) }),
+      el('td', { class: 'num', text: pv(pp.mgrScore) }),
+      el('td', { class: 'num', text: pv(pp.stkMean) }),
+      el('td', { class: 'num calc', text: pv(pp.final) }),
+      el('td', { class: 'num', text: pu(pp.range) }),
       el('td', null, pp.tags.map(tagEl))
     ].concat(decisionCells(pp), [
       el('td', null, [el('span', { class: 'qt', text: pp.why })])
@@ -521,7 +572,7 @@
     }));
     wrap.appendChild(table([
       { t: 'نام همکار' }, { t: 'نمره‌ها', num: 1 }, { t: 'مدیر', num: 1 }, { t: 'م. ذی‌نفعان', num: 1 },
-      { t: 'نمرهٔ نهایی (وزنی)', num: 1 }, { t: 'دامنه', num: 1 }, { t: 'تگ' },
+      { t: 'نمرهٔ نهایی', num: 1 }, { t: 'دامنه', num: 1 }, { t: 'تگ' },
       { t: 'وضعیت نمرهٔ نهایی' }, { t: 'نمرهٔ تأییدشده', num: 1 }, { t: 'توضیح' }
     ], rows));
     return wrap;
@@ -535,8 +586,7 @@
       el('div', { class: 'k', text: k }), el('div', { class: 'v', text: v }), el('div', { class: 's', text: s })
     ]);
   }
-  const toPct = v => ((v - 1) / 4) * 100;          /* نمره ۱..۵ → درصد عرض نمودار */
-  const faNum = (v, d) => fa(Number(v).toFixed(d === undefined ? 2 : d)).replace(/\./g, '٫');
+  const toPct = v => v;                            /* نمره خودش درصد است → همان درصد عرض نمودار */
 
   function histChart(d) {
     const st = d.stats, maxN = Math.max.apply(null, [1].concat(d.bins.map(b => b.n)));
@@ -544,28 +594,29 @@
 
     /* نوار نیمهٔ میانی (چارک ۱ تا ۳) */
     if (st && st.q3 > st.q1) {
-      const band = el('div', { class: 'hist-iqr', title: `نیمهٔ میانی افراد: ${faNum(st.q1)} تا ${faNum(st.q3)}` });
+      const band = el('div', { class: 'hist-iqr', title: `نیمهٔ میانی افراد: ${pv(st.q1)} تا ${pv(st.q3)}` });
       band.style.left = toPct(st.q1) + '%';
       band.style.width = (toPct(st.q3) - toPct(st.q1)) + '%';
       plot.appendChild(band);
     }
 
-    /* ستون‌ها */
+    /* ستون‌ها — عرض هر ستون از تعداد بازه‌ها گرفته می‌شود */
+    const w = 100 / d.bins.length;
     d.bins.forEach((b, i) => {
       const h = (b.n / maxN) * 82;
       const names = b.names.slice(0, 12).join('، ') + (b.names.length > 12 ? ' و ...' : '');
       const bar = el('div', {
-        class: 'hbar' + (b.n === 0 ? ' zero' : '') + (b.hi <= 3 ? ' low' : ''),
-        title: `نمرهٔ ${faNum(b.lo, 1)} تا ${faNum(b.hi, 1)} — ${fa(b.n)} نفر` + (b.n ? '\n' + names : '')
+        class: 'hbar' + (b.n === 0 ? ' zero' : '') + (b.hi <= 50 ? ' low' : ''),
+        title: `نمرهٔ ${pv(b.lo)} تا ${pv(b.hi)} — ${fa(b.n)} نفر` + (b.n ? '\n' + names : '')
       });
-      bar.style.left = 'calc(' + (i * 12.5) + '% + 2px)';
-      bar.style.width = 'calc(12.5% - 4px)';
+      bar.style.left = 'calc(' + (i * w) + '% + 2px)';
+      bar.style.width = 'calc(' + w + '% - 4px)';
       bar.style.height = Math.max(h, b.n ? 2 : 0.6) + '%';
       plot.appendChild(bar);
       if (b.n) {
         const lbl = el('div', { class: 'hn', text: fa(b.n) });
-        lbl.style.left = (i * 12.5) + '%';
-        lbl.style.width = '12.5%';
+        lbl.style.left = (i * w) + '%';
+        lbl.style.width = w + '%';
         lbl.style.bottom = 'calc(' + h + '% + 5px)';
         plot.appendChild(lbl);
       }
@@ -578,7 +629,7 @@
         const m = el('div', { class: 'hmark' + (cls === 'med' ? ' med' : '') });
         m.style.left = x + '%';
         plot.appendChild(m);
-        const chip = el('div', { class: 'hmark-lbl' + (cls === 'med' ? ' med' : ''), text: `${lab} ${faNum(v)}` });
+        const chip = el('div', { class: 'hmark-lbl' + (cls === 'med' ? ' med' : ''), text: `${lab} ${pv(v)}` });
         chip.style.left = x + '%';
         chip.style.top = (k * 22) + 'px';
         chip.style.transform = 'translateX(' + (x < 12 ? '-10%' : x > 88 ? '-90%' : '-50%') + ')';
@@ -587,16 +638,16 @@
     }
 
     const axis = el('div', { class: 'hist-axis' });
-    [1, 2, 3, 4, 5].forEach(v => {
-      const s = el('span', { text: fa(v) });
+    [0, 25, 50, 75, 100].forEach(v => {
+      const s = el('span', { text: fa(v) + '٪' });
       s.style.left = toPct(v) + '%';
       axis.appendChild(s);
     });
-    axis.appendChild(el('span', { class: 'cap', text: 'نمرهٔ نهایی روی مقیاس ۱ تا ۵' }));
+    axis.appendChild(el('span', { class: 'cap', text: 'نمرهٔ نهایی بر حسب درصد' }));
 
     const legend = el('div', { class: 'hlegend' }, [
-      el('span', null, [mk('i', 'background:var(--bar)'), el('em', { text: 'نمرهٔ ۳ و بالاتر' })]),
-      el('span', null, [mk('i', 'background:var(--bar-low)'), el('em', { text: 'نمرهٔ زیر ۳ — نیازمند بررسی' })]),
+      el('span', null, [mk('i', 'background:var(--bar)'), el('em', { text: 'نمرهٔ ۵۰٪ و بالاتر' })]),
+      el('span', null, [mk('i', 'background:var(--bar-low)'), el('em', { text: 'نمرهٔ زیر ۵۰٪ — نیازمند بررسی' })]),
       el('span', null, [mk('i', 'background:var(--iqr)'), el('em', { text: 'نیمهٔ میانی افراد (چارک ۱ تا ۳)' })]),
       el('span', null, [mk('i', 'background:var(--ink)', 'line'), el('em', { text: 'میانگین' })]),
       el('span', null, [mk('i', 'background:var(--ink-3)', 'line'), el('em', { text: 'میانه' })])
@@ -627,8 +678,8 @@
         el('p', {
           class: 'hint',
           text: distMode === 'approved'
-            ? 'بر پایهٔ نمرهٔ تأییدشده در جلسهٔ کالیبراسیون. هر ستون تعداد افرادی است که نمره‌شان در آن بازهٔ نیم‌نمره‌ای افتاده.'
-            : 'بر پایهٔ نمرهٔ وزنی محاسبه‌شده (۶۰٪ مدیر + ۴۰٪ میانگین ذی‌نفعان). هر ستون تعداد افرادی است که نمره‌شان در آن بازهٔ نیم‌نمره‌ای افتاده.'
+            ? 'بر پایهٔ نمرهٔ تأییدشده در جلسهٔ کالیبراسیون. هر ستون تعداد افرادی است که نمره‌شان در آن بازهٔ ده‌درصدی افتاده.'
+            : 'بر پایهٔ نمرهٔ وزنی محاسبه‌شده (۶۰٪ درصد مدیر + ۴۰٪ میانگین درصد ذی‌نفعان). هر ستون تعداد افرادی است که نمره‌شان در آن بازهٔ ده‌درصدی افتاده.'
         })
       ]),
       anyApproved ? el('div', { class: 'seg' }, [
@@ -650,11 +701,11 @@
     const st = d.stats;
     wrap.appendChild(el('div', { class: 'statgrid' }, [
       statTile('تعداد نمره‌شده', fa(st.n), `از ${fa(S.res.people.length)} همکار`),
-      statTile('میانگین', faNum(st.mean), `میانهٔ ${faNum(st.median)}`),
-      statTile('انحراف معیار', faNum(st.sd), C.SHAPE[d.shape.spread]),
-      statTile('دامنه', `${faNum(st.min)}–${faNum(st.max)}`, `کمینه تا بیشینه`),
-      statTile('نیمهٔ میانی', `${faNum(st.q1)}–${faNum(st.q3)}`, `دامنهٔ میان‌چارکی ${faNum(st.iqr)}`),
-      statTile('شکل توزیع', C.SHAPE[d.shape.skewDir], `${pct(d.shape.topShare)} بالای ۴`)
+      statTile('میانگین', pv(st.mean), `میانهٔ ${pv(st.median)}`),
+      statTile('انحراف معیار', pu(st.sd), `واحد درصد — ${C.SHAPE[d.shape.spread]}`),
+      statTile('دامنه', `${pv(st.min)}–${pv(st.max)}`, 'کمینه تا بیشینه'),
+      statTile('نیمهٔ میانی', `${pv(st.q1)}–${pv(st.q3)}`, `دامنهٔ میان‌چارکی ${pu(st.iqr)}`),
+      statTile('شکل توزیع', C.SHAPE[d.shape.skewDir], `${pct(d.shape.topShare)} بالای ۷۵٪`)
     ]));
 
     /* --- باندهای عملکردی --- */
@@ -669,7 +720,8 @@
         el('span', { class: 'track' }, [el('span', { class: 'fill' })]),
         el('div', { class: 'c', text: `${fa(b.n)} نفر · ${pct(b.share)}` })
       ]);
-      row.querySelector('.fill').style.width = (b.share * 100).toFixed(1) + '%';
+      const f = row.querySelector('.fill');
+      if (!b.n) f.style.display = 'none'; else f.style.width = (b.share * 100).toFixed(1) + '%';
       bandBox.appendChild(row);
     });
     wrap.appendChild(bandBox);
@@ -679,7 +731,7 @@
       const box = el('div', { class: 'panel' }, [el('h3', { text: title }), el('p', { class: 'hint', text: hint })]);
       const ul = el('ul', { class: 'xlist', style: 'list-style:none; margin:0; padding:0' });
       arr.forEach(i => ul.appendChild(el('li', null, [
-        el('span', { text: i.name }), el('b', { text: faNum(i.v) })
+        el('span', { text: i.name }), el('b', { text: pv(i.v) })
       ])));
       box.appendChild(ul);
       return box;
@@ -695,7 +747,7 @@
         el('h3', { text: 'مبنای محاسبهٔ نمره' }),
         el('p', { class: 'hint', text: 'نمرهٔ افرادی که فقط یک طرف ارزیابی‌شان ثبت شده، با وزن ۱ همان طرف ساخته شده و با بقیه هم‌مقیاس نیست.' })
       ]);
-      [['هر دو طرف (۰٫۶ مدیر + ۰٫۴ ذی‌نفعان)', d.basis.full],
+      [['هر دو طرف (۶۰٪ مدیر + ۴۰٪ ذی‌نفعان)', d.basis.full],
        ['فقط نمرهٔ مدیر', d.basis.mgr],
        ['فقط نمرهٔ ذی‌نفعان', d.basis.stk]].forEach(([lab, list]) => {
         const row = el('div', { class: 'bandrow' + (lab.startsWith('فقط') ? ' lowband' : ''), title: list.length ? list.join('، ') : '—' }, [
@@ -714,11 +766,11 @@
     if (distMode === 'calc' && d.calib.pairs.length) {
       const rows = d.calib.pairs.map(p => el('tr', null, [
         el('td', { class: 'nm', text: p.name }),
-        el('td', { class: 'num', text: faNum(p.from) }),
-        el('td', { class: 'num', text: faNum(p.to) }),
+        el('td', { class: 'num', text: pv(p.from) }),
+        el('td', { class: 'num', text: pv(p.to) }),
         el('td', { class: 'num' }, [el('span', {
           class: 'finalv ' + (p.delta > 0 ? 'okv' : 'changed'),
-          text: (p.delta > 0 ? '+' : '−') + faNum(Math.abs(p.delta))
+          text: (p.delta > 0 ? '+' : '−') + pu(Math.abs(p.delta)) + ' واحد'
         })])
       ]));
       const box = el('div', { class: 'panel' }, [
@@ -797,7 +849,7 @@
       el('td', { class: 'nm', text: x.target }),
       el('td', { text: x.c.name }),
       el('td', { class: 'num', text: x.c.role }),
-      el('td', { class: 'num' }, [el('span', { class: 'dot s' + (x.c.score === null ? 3 : Math.round(x.c.score)), text: fa(x.c.score === null ? '?' : x.c.score) })]),
+      el('td', { class: 'num' }, [el('span', { class: 'dot ' + (x.c.score === null ? 'none' : dotClass(x.c.score)), text: x.c.score === null ? '—' : pv(x.c.score), title: x.c.text })]),
       el('td', { class: 'num' }, [leanEl(x.c.sent, x.c.conflict)]),
       el('td', null, [el('span', { class: 'qt3', text: x.c.comment })])
     ]));
@@ -838,8 +890,8 @@
         el('td', { class: 'num', text: r.done ? `${fa(r.texts)}` : '—' }),
         el('td', { class: 'num' }, [r.missing ? el('span', { class: 'tag t-lo', text: fa(r.missing) }) : el('span', { text: '—' })]),
         track,
-        el('td', { class: 'num', text: num(r.avg, r.avg === null ? undefined : 2) }),
-        el('td', { class: 'num', text: r.dev === null ? '—' : (r.dev > 0 ? '+' : '') + num(r.dev, 2) }),
+        el('td', { class: 'num', text: pv(r.avg) }),
+        el('td', { class: 'num', text: r.dev === null ? '—' : (r.dev > 0 ? '+' : '−') + pu(Math.abs(r.dev)) }),
         el('td', null, [el('span', { class: 'tag ' + styleCls, text: r.style })]),
         el('td', { class: 'num', text: r.self })
       ]);
@@ -897,12 +949,12 @@
     const g = el('div', { class: 'guide' });
     const p1 = el('div', { class: 'panel' });
     p1.appendChild(el('h3', { text: 'تگ‌ها چطور تعیین می‌شوند' }));
-    p1.appendChild(el('p', { text: `آستانه‌ها نسبت به میانگین واقعی سازمان (${num(st.pop, 2)}) تنظیم می‌شوند، نه وسط مقیاس؛ چون در عمل بیشتر نمره‌ها روی یک گزینه متمرکز است.` }));
+    p1.appendChild(el('p', { text: `همهٔ آستانه‌ها بر حسب درصد هستند و نسبت به میانگین واقعی سازمان (${pv(st.pop)}) تنظیم شده‌اند، نه وسط مقیاس.` }));
     const ul = el('ul');
     [
-      [C.TAGS.HIGH, `دست‌کم ${fa(o.minVotes)} نظر، نمرهٔ نهایی ≥ ${fa(o.hiMean)} و کمینهٔ نمره ≥ ${fa(o.hiMin)} — یعنی همهٔ ارزیاب‌ها بالاترین سطوح را داده‌اند و هیچ نمرهٔ میانی وجود ندارد.`],
-      [C.TAGS.LOW, `دست‌کم ${fa(o.minVotes)} نظر و بالاترین نمرهٔ دریافتی ≤ ${fa(o.loMaxScore)} — یعنی همهٔ ارزیاب‌ها نمرهٔ پایین (۲ و کمتر) داده‌اند.`],
-      [C.TAGS.DIFF, `دامنهٔ نمره‌ها ≥ ${fa(o.totalRange)}، یا فاصلهٔ نمرهٔ مدیر با میانگین ذی‌نفعان ≥ ${fa(o.gapMgrStk)}، یا پراکندگی بین خود ذی‌نفعان ≥ ${fa(o.stkRange)}.`],
+      [C.TAGS.HIGH, `دست‌کم ${fa(o.minVotes)} نظر، نمرهٔ نهایی ≥ ${pv(o.hiMean)} و کمینهٔ نمره ≥ ${pv(o.hiMin)} — یعنی همهٔ ارزیاب‌ها یکی از دو گزینهٔ بالای فرم خود را داده‌اند و هیچ گزینهٔ میانی وجود ندارد.`],
+      [C.TAGS.LOW, `دست‌کم ${fa(o.minVotes)} نظر و بالاترین نمرهٔ دریافتی ≤ ${pv(o.loMaxScore)} — یعنی همهٔ ارزیاب‌ها یکی از دو گزینهٔ پایین فرم خود را داده‌اند.`],
+      [C.TAGS.DIFF, `دامنهٔ نمره‌ها ≥ ${fa(o.totalRange)} واحد درصد، یا فاصلهٔ نمرهٔ مدیر با میانگین ذی‌نفعان ≥ ${fa(o.gapMgrStk)} واحد، یا پراکندگی بین خود ذی‌نفعان ≥ ${fa(o.stkRange)} واحد.`],
       [C.TAGS.OK, 'دست‌کم دو نظر و هیچ‌کدام از شرایط بالا برقرار نیست.'],
       [C.TAGS.THIN, 'کمتر از دو نظر ثبت شده؛ تشخیص الگو ممکن نیست.'],
       [C.TAGS.NONE, 'هیچ نظری ثبت نشده است.']
@@ -913,15 +965,15 @@
 
     const pw = el('div', { class: 'panel' });
     pw.appendChild(el('h3', { text: 'نمرهٔ نهایی چطور حساب می‌شود' }));
-    pw.appendChild(el('p', { text: `نمرهٔ سه ذی‌نفع اول با هم میانگین گرفته می‌شود، بعد با وزن ${fa(o.wStk)} در کنار نمرهٔ مدیر مستقیم با وزن ${fa(o.wMgr)} ترکیب می‌شود:` }));
-    pw.appendChild(el('p', { style: 'font-variant-numeric:tabular-nums;background:var(--surface-2);border-radius:8px;padding:8px 12px', text: `نمرهٔ نهایی = (نمرهٔ مدیر × ${fa(o.wMgr)}) + (میانگین ذی‌نفعان × ${fa(o.wStk)})` }));
-    pw.appendChild(el('p', { text: 'اگر برای فردی هیچ ذی‌نفعی نظر نداده باشد، وزن نمرهٔ مدیر ۱ می‌شود؛ و اگر مدیر نظر نداده باشد، وزن میانگین ذی‌نفعان ۱ می‌شود.' }));
+    pw.appendChild(el('p', { text: `درصد سه ذی‌نفع اول با هم میانگین گرفته می‌شود، بعد با وزن ${fa(o.wStk)} در کنار درصد مدیر مستقیم با وزن ${fa(o.wMgr)} ترکیب می‌شود:` }));
+    pw.appendChild(el('p', { style: 'font-variant-numeric:tabular-nums;background:var(--surface-2);border-radius:8px;padding:8px 12px', text: `نمرهٔ نهایی (٪) = (درصد مدیر × ${fa(o.wMgr)}) + (میانگین درصد ذی‌نفعان × ${fa(o.wStk)})` }));
+    pw.appendChild(el('p', { text: 'اگر برای فردی هیچ ذی‌نفعی نظر نداده باشد، وزن درصد مدیر ۱ می‌شود؛ و اگر مدیر نظر نداده باشد، وزن میانگین ذی‌نفعان ۱ می‌شود.' }));
     pw.appendChild(el('h3', { text: 'تعیین‌تکلیف نمرهٔ نهایی', style: 'margin-top:14px' }));
     pw.appendChild(el('p', { text: 'در ستون «وضعیت نمرهٔ نهایی» جدول تحلیل، برای هر نفر یکی از سه حالت را انتخاب کنید:' }));
     const ulw = el('ul');
     [['تایید شده (توسط مدیر)', 'همان نمرهٔ وزنی به‌عنوان نمرهٔ نهایی ثبت می‌شود.'],
      ['تایید شده (در جلسه کالیبراسیون)', 'همان نمرهٔ وزنی، ولی با مهر جلسهٔ کالیبراسیون.'],
-     ['تغییر کرده (طبق جلسه کالیبراسیون)', 'کادر عددی باز می‌شود تا نمرهٔ تأییدشدهٔ جلسه را دستی وارد کنید؛ همان عدد در خروجی می‌آید.']
+     ['تغییر کرده (طبق جلسه کالیبراسیون)', 'کادر عددی باز می‌شود تا درصد تأییدشدهٔ جلسه (۰ تا ۱۰۰) را دستی وارد کنید؛ همان عدد در خروجی می‌آید.']
     ].forEach(([a, b]) => ulw.appendChild(el('li', null, [el('b', { text: a }), el('span', { text: ' — ' + b })])));
     pw.appendChild(ulw);
     pw.appendChild(el('p', { style: 'margin-top:8px', text: 'این انتخاب‌ها در مرورگر ذخیره می‌شوند و دکمهٔ «خروجی اکسل» فقط همین نمرات نهایی را بیرون می‌دهد.' }));
@@ -929,12 +981,12 @@
 
     const pd = el('div', { class: 'panel' });
     pd.appendChild(el('h3', { text: 'تب «توزیع نمرهٔ نهایی» را چطور بخوانیم' }));
-    pd.appendChild(el('p', { text: 'این تب نشان می‌دهد نمرهٔ نهایی افراد چطور روی مقیاس ۱ تا ۵ پخش شده است. هر ستون یک بازهٔ نیم‌نمره‌ای است و ارتفاعش تعداد افرادِ آن بازه؛ با نگه‌داشتن نشانگر روی ستون، نام‌ها را می‌بینید. نوار روشنِ پشت ستون‌ها نیمهٔ میانی افراد (چارک اول تا سوم) است و خط تیره میانگین و خط نازک میانه را نشان می‌دهد.' }));
+    pd.appendChild(el('p', { text: 'این تب نشان می‌دهد نمرهٔ نهایی افراد چطور روی مقیاس درصدی پخش شده است. هر ستون یک بازهٔ ده‌درصدی است و ارتفاعش تعداد افرادِ آن بازه؛ با نگه‌داشتن نشانگر روی ستون، نام‌ها را می‌بینید. نوار روشنِ پشت ستون‌ها نیمهٔ میانی افراد (چارک اول تا سوم) است و خط تیره میانگین و خط نازک میانه را نشان می‌دهد.' }));
     const uld = el('ul');
-    [['انحراف معیار', 'هرچه کوچک‌تر، نمرات فشرده‌تر. زیر ۰٫۴۵ یعنی نمره عملاً بین افراد تفاوتی نمی‌گذارد و برای تصمیم‌های ارتقا و پاداش قابل اتکا نیست.'],
+    [['انحراف معیار', 'هرچه کوچک‌تر، نمرات فشرده‌تر. زیر ۱۱ واحد درصد یعنی نمره عملاً بین افراد تفاوتی نمی‌گذارد و برای تصمیم‌های ارتقا و پاداش قابل اتکا نیست.'],
      ['چولگی', 'اگر توده نمرات بالا باشد و دم توزیع به پایین کشیده شود، یعنی اکثریت نمرهٔ بالا گرفته‌اند و فقط چند نفر متمایز پایین‌اند.'],
-     ['تورم نمره', 'وقتی ۶۰٪ یا بیشتر افراد نمرهٔ ۴ و بالاتر گرفته باشند، هشدار داده می‌شود؛ در این حالت بهتر است در جلسه، افراد هم‌نقش را نسبت به هم رتبه‌بندی کنید نه با عدد مطلق.'],
-     ['باندهای عملکردی', 'همان توزیع، این بار در پنج سطح: برجسته (۴٫۵+)، بالاتر از انتظار (۴ تا ۴٫۵)، مطابق انتظار (۳ تا ۴)، نیازمند بهبود (۲ تا ۳) و نیازمند اقدام (زیر ۲).'],
+     ['تورم نمره', 'وقتی ۶۰٪ یا بیشتر افراد نمرهٔ ۷۵٪ و بالاتر گرفته باشند، هشدار داده می‌شود؛ در این حالت بهتر است در جلسه، افراد هم‌نقش را نسبت به هم رتبه‌بندی کنید نه با عدد مطلق.'],
+     ['باندهای عملکردی', 'همان توزیع، این بار در پنج سطح: برجسته (۹۰٪+)، بالاتر از انتظار (۷۵ تا ۹۰٪)، مطابق انتظار (۵۰ تا ۷۵٪)، نیازمند بهبود (۳۰ تا ۵۰٪) و نیازمند اقدام (زیر ۳۰٪).'],
      ['مبنای محاسبهٔ نمره', 'کسانی که فقط یک طرفِ ارزیابی‌شان ثبت شده، نمره‌شان با وزن ۱ همان طرف ساخته شده و با بقیه هم‌مقیاس نیست؛ این بخش تعدادشان را جدا نشان می‌دهد.']
     ].forEach(([a, b]) => uld.appendChild(el('li', null, [el('b', { text: a }), el('span', { text: ' — ' + b })])));
     pd.appendChild(uld);
@@ -957,20 +1009,32 @@
     pt.appendChild(ult);
     pt.appendChild(el('p', { style: 'margin-top:8px' }, [
       tagEl(C.TAGS.CONFLICT),
-      el('span', { text: ` وقتی می‌خورد که نمرهٔ ${fa(o.conflictHigh)} یا بالاتر با متنی با بار منفی همراه شود، یا نمرهٔ ${fa(o.conflictLow)} و پایین‌تر با متنی با بار مثبت.` })
+      el('span', { text: ` وقتی می‌خورد که نمرهٔ ${pv(o.conflictHigh)} یا بالاتر با متنی با بار منفی همراه شود، یا نمرهٔ ${pv(o.conflictLow)} و پایین‌تر با متنی با بار مثبت.` })
     ]));
     pt.appendChild(el('p', { style: 'margin-top:8px', text: 'این سنجش واژگانی است، نه درک معنا؛ طعنه، شرط و جملهٔ پیچیده را اشتباه می‌فهمد. با نگه‌داشتن نشانگر روی برچسبِ بار متن، واژه‌هایی که شمرده شده‌اند را می‌بینید تا خودتان قضاوت کنید.' }));
     g.appendChild(pt);
 
     const p2 = el('div', { class: 'panel' });
     p2.appendChild(el('h3', { text: 'تبدیل پاسخ به نمره' }));
-    p2.appendChild(el('p', { text: 'گزینه‌های هر سه فرم (مدیران، ذی‌نفعان، خودارزیابی) روی یک مقیاس ۱ تا ۵ نگاشت می‌شوند:' }));
-    const dl = el('dl', { class: 'kv' });
-    [5, 4, 3, 2, 1].forEach(s => {
-      dl.appendChild(el('dt', { text: fa(s) }));
-      dl.appendChild(el('dd', { text: C.SCORE_LABEL[s] + ` — ${fa(st.dist[s] || 0)} نظر` }));
+    p2.appendChild(el('p', { text: 'سه فرم، سه مقیاس با طول متفاوت دارند؛ پس گزینه‌ها را نمی‌توان مستقیم با هم جمع کرد. برای هر گزینه درصدِ آن طبق جدول ابلاغی سازمان تعیین شده و ترکیب وزنی روی همین درصدها انجام می‌شود:' }));
+    ['mgr', 'stk', 'self'].forEach(key => {
+      const sc = C.SCALES[key];
+      p2.appendChild(el('h3', { text: `${sc.label} — ${fa(sc.max)} گزینه`, style: 'margin-top:14px' }));
+      const dl = el('dl', { class: 'kv' });
+      sc.levels.forEach(L => {
+        dl.appendChild(el('dt', { text: `${fa(L.pct)}٪` }));
+        dl.appendChild(el('dd', { text: L.text }));
+      });
+      p2.appendChild(dl);
     });
-    p2.appendChild(dl);
+    p2.appendChild(el('p', { style: 'margin-top:12px', text: 'گزینهٔ ششم فرم مدیران («ستارهٔ مدیریت دارایی») را کمیته می‌دهد نه مدیر مستقیم، و اصلاً وارد این محاسبه نمی‌شود.' }));
+    const exc = Object.keys(S.res.excludedAnswers || {});
+    if (exc.length) {
+      p2.appendChild(el('h3', { text: 'پاسخ‌های کنارگذاشته‌شده', style: 'margin-top:14px' }));
+      const u = el('ul');
+      exc.forEach(k => u.appendChild(el('li', { text: `${k} (${fa(S.res.excludedAnswers[k])} بار)` })));
+      p2.appendChild(u);
+    }
     const unk = Object.keys(S.res.unknownAnswers);
     if (unk.length) {
       p2.appendChild(el('h3', { text: 'پاسخ‌های ناشناخته', style: 'margin-top:14px' }));
@@ -1022,19 +1086,19 @@
     const stats = el('dl', { class: 'kv' });
     const wtxt = pp.final === null ? '—'
       : (pp.wMgrUsed && pp.wStkUsed)
-        ? `${num(pp.mgrScore)} × ${fa(pp.wMgrUsed)} + ${num(pp.stkMean, 2)} × ${fa(pp.wStkUsed)}`
+        ? `${pv(pp.mgrScore)} × ${fa(pp.wMgrUsed)} + ${pv(pp.stkMean)} × ${fa(pp.wStkUsed)}`
         : (pp.wMgrUsed ? 'فقط نمرهٔ مدیر (وزن ۱)' : 'فقط میانگین ذی‌نفعان (وزن ۱)');
     const ap = approvedScore(pp), dc = decisionOf(pp);
     [['تعداد نظر', `${fa(pp.done)} از ${fa(pp.assigned)} ارزیاب`],
-     ['نمرهٔ نهایی (وزنی)', num(pp.final, pp.final === null ? undefined : 2)],
+     ['نمرهٔ نهایی (وزنی)', pv(pp.final)],
      ['نحوهٔ محاسبه', wtxt],
      ['وضعیت نمرهٔ نهایی', dc.status ? DEC_LABEL[dc.status] : 'تعیین نشده'],
-     ['نمرهٔ نهایی تأییدشده', ap === null ? '—' : num(ap, 2)],
-     ['نمرهٔ مدیر', num(pp.mgrScore)],
-     ['میانگین ذی‌نفعان', num(pp.stkMean, pp.stkMean === null ? undefined : 2)],
-     ['میانگین سادهٔ نمره‌ها', num(pp.avg, pp.avg === null ? undefined : 2)],
-     ['دامنه', num(pp.range)],
-     ['خودارزیابی', pp.self ? `${num(pp.self.score)} — ${pp.self.text}` : 'ثبت نشده']
+     ['نمرهٔ نهایی تأییدشده', pv(ap)],
+     ['نمرهٔ مدیر', pv(pp.mgrScore)],
+     ['میانگین ذی‌نفعان', pv(pp.stkMean)],
+     ['میانگین سادهٔ نمره‌ها', pv(pp.avg)],
+     ['دامنه', pp.range === null ? '—' : pu(pp.range) + ' واحد درصد'],
+     ['خودارزیابی', pp.self ? `${pv(pp.self.score)} — ${pp.self.text}` : 'ثبت نشده']
     ].forEach(([k, v]) => { stats.appendChild(el('dt', { text: k })); stats.appendChild(el('dd', { text: v })); });
     b.appendChild(el('div', { class: 'dsec' }, [el('h4', { text: 'شاخص‌ها' }), stats]));
 
@@ -1053,7 +1117,7 @@
     });
     pp.extras.forEach(e => {
       list.appendChild(el('div', { class: 'qrow' }, [
-        el('span', { class: 'dot s' + (e.score === null ? 3 : Math.round(e.score)), text: fa(e.score === null ? '?' : e.score) }),
+        el('span', { class: 'dot ' + (e.score === null ? 'none' : dotClass(e.score)), text: e.score === null ? '—' : pv(e.score) }),
         el('div', { style: 'flex:1;min-width:0' }, [
           el('div', { class: 'who', text: e.reviewer }),
           el('div', { class: 'role', text: 'خارج از فهرست ذی‌نفعان' }),
@@ -1079,13 +1143,15 @@
     if (!S.res) return note('ابتدا فایل‌ها را بارگذاری کنید.', true);
     if (typeof XLSX === 'undefined') return note('کتابخانهٔ ساخت اکسل بارگذاری نشده است.', true);
     const wb = XLSX.utils.book_new();
-    const rows = [['ردیف', 'نام همکار', 'نمرهٔ مدیر', 'میانگین ذی‌نفعان', 'وزن مدیر', 'وزن ذی‌نفعان',
-                   'نمرهٔ نهایی (وزنی)', 'وضعیت نمرهٔ نهایی', 'نمرهٔ نهایی تأییدشده']];
+    const r1 = v => v === null || v === undefined ? null : Math.round(v * 10) / 10;
+    const rows = [['ردیف', 'نام همکار', 'نمرهٔ مدیر (٪)', 'میانگین ذی‌نفعان (٪)', 'وزن مدیر', 'وزن ذی‌نفعان',
+                   'نمرهٔ نهایی (٪)', 'باند عملکردی', 'وضعیت نمرهٔ نهایی', 'نمرهٔ نهایی تأییدشده (٪)']];
     S.res.peopleByRow.forEach((p, i) => {
       const d = decisionOf(p), ap = approvedScore(p);
-      rows.push([i + 1, p.name, p.mgrScore, p.stkMean,
-                 p.wMgrUsed || null, p.wStkUsed || null, p.final,
-                 d.status ? DEC_LABEL[d.status] : 'تعیین نشده', ap]);
+      rows.push([i + 1, p.name, r1(p.mgrScore), r1(p.stkMean),
+                 p.wMgrUsed || null, p.wStkUsed || null, r1(p.final),
+                 p.final === null ? '' : C.bandOf(p.final).label,
+                 d.status ? DEC_LABEL[d.status] : 'تعیین نشده', r1(ap)]);
     });
     XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(rows), 'نمرات نهایی');
     XLSX.writeFile(wb, `نمرات نهایی ${S.years.map(fa).join('-')}.xlsx`);
@@ -1136,6 +1202,7 @@
         S.decisions = Object.assign({}, shared.decisions || {}, localDecisions);
         S.basedOn = shared.savedAt;
         sharedState = hasLocal ? 'updated' : 'loaded';
+        rescoreRecords(); migrateScale();
         save();
       } else {
         S.meta = Object.assign({}, S.meta, { shared: true, savedAt: shared.savedAt });
