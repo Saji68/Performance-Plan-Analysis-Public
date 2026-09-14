@@ -1,0 +1,397 @@
+<!doctype html>
+<html lang="fa" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>داشبورد تجربه همکاری</title>
+<meta name="description" content="تحلیل نظرهای مدیران و ذی‌نفعان، تشخیص الگوهای نمره‌دهی مشکوک و پیگیری ارزیابی‌های ثبت‌نشده.">
+<link rel="icon" href="assets/mark.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Vazirmatn:wght@300;400;500;600;700&family=Markazi+Text:wght@500;600;700&display=swap">
+<style>
+/* ===== توکن‌های تم — برند کارگزاری مفید ===== */
+:root{
+  --brand:#014A69; --brand-2:#00BAAE; --brand-ink:#013a52;
+  --ground:#F2F6F7; --surface:#FFFFFF; --surface-2:#FAFCFC; --raise:#FFFFFF;
+  --ink:#0C2733; --ink-2:#40606D; --ink-3:#7794A0;
+  --line:#DCE7EA; --line-2:#C6D8DD;
+  --hi:#6C4FB8; --hi-bg:#EFEAFA;
+  --lo:#C2413A; --lo-bg:#FBE9E7;
+  --diff:#B4721C; --diff-bg:#FBF0DC;
+  --ok:#25795A; --ok-bg:#E3F2EA;
+  --conf:#A8326B; --conf-bg:#FBE7F0;
+  --mute:#6D8893; --mute-bg:#EDF2F3;
+  --shadow:0 1px 2px rgba(1,74,105,.06), 0 8px 24px -16px rgba(1,74,105,.28);
+  --radius:12px;
+  color-scheme:light;
+}
+@media (prefers-color-scheme:dark){
+  :root:not([data-theme="light"]){
+    --brand:#2AA7B8; --brand-2:#00BAAE; --brand-ink:#8FD8DC;
+    --ground:#07212C; --surface:#0D2E3B; --surface-2:#113542; --raise:#16404F;
+    --ink:#E6F1F3; --ink-2:#A8C4CD; --ink-3:#7C9CA8;
+    --line:#1C4655; --line-2:#255868;
+    --hi:#B9A6F0; --hi-bg:#2B2646;
+    --lo:#F09B92; --lo-bg:#432420;
+    --diff:#E6B665; --diff-bg:#3D3016;
+    --ok:#7FD4AC; --ok-bg:#123B2D;
+    --conf:#F3A0C6; --conf-bg:#432034;
+    --mute:#9DB6BF; --mute-bg:#173B49;
+    --shadow:0 1px 2px rgba(0,0,0,.3), 0 10px 28px -18px rgba(0,0,0,.8);
+    color-scheme:dark;
+  }
+}
+:root[data-theme="dark"]{
+  --brand:#2AA7B8; --brand-2:#00BAAE; --brand-ink:#8FD8DC;
+  --ground:#07212C; --surface:#0D2E3B; --surface-2:#113542; --raise:#16404F;
+  --ink:#E6F1F3; --ink-2:#A8C4CD; --ink-3:#7C9CA8;
+  --line:#1C4655; --line-2:#255868;
+  --hi:#B9A6F0; --hi-bg:#2B2646;
+  --lo:#F09B92; --lo-bg:#432420;
+  --diff:#E6B665; --diff-bg:#3D3016;
+  --ok:#7FD4AC; --ok-bg:#123B2D;
+  --conf:#F3A0C6; --conf-bg:#432034;
+  --mute:#9DB6BF; --mute-bg:#173B49;
+  --shadow:0 1px 2px rgba(0,0,0,.3), 0 10px 28px -18px rgba(0,0,0,.8);
+  color-scheme:dark;
+}
+
+*{box-sizing:border-box}
+html,body{margin:0;padding:0}
+body{
+  background:var(--ground); color:var(--ink);
+  font-family:'Vazirmatn', system-ui, -apple-system, 'Segoe UI', Tahoma, sans-serif;
+  font-size:14px; line-height:1.75; -webkit-font-smoothing:antialiased;
+}
+h1,h2,h3{margin:0; font-weight:700; text-wrap:balance}
+.display{font-family:'Markazi Text','Vazirmatn',serif; font-weight:700; line-height:1.2}
+a{color:var(--brand)}
+button,input,select{font:inherit; color:inherit}
+:focus-visible{outline:2px solid var(--brand-2); outline-offset:2px; border-radius:6px}
+@media (prefers-reduced-motion:reduce){*{transition:none!important; animation:none!important}}
+
+.wrap{max-width:1360px; margin:0 auto; padding-inline:20px}
+@media(max-width:520px){.wrap{padding-inline:14px}}
+
+/* ===== هدر ===== */
+header.top{
+  background:linear-gradient(180deg,var(--surface),var(--surface-2));
+  border-bottom:1px solid var(--line); position:sticky; top:0; z-index:40;
+}
+.top-in{display:flex; align-items:center; gap:16px; padding-block:12px; flex-wrap:wrap}
+.brand{display:flex; align-items:center; gap:12px; min-width:0}
+.brand img{height:34px; width:auto; display:block}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]) .brand img{filter:brightness(2.6) saturate(.55)}}
+:root[data-theme="dark"] .brand img{filter:brightness(2.6) saturate(.55)}
+:root[data-theme="light"] .brand img{filter:none}
+.brand-txt h1{font-size:20px; letter-spacing:-.2px}
+.brand-txt p{margin:0; font-size:11.5px; color:var(--ink-3); letter-spacing:.06em}
+.top-actions{margin-inline-start:auto; display:flex; gap:8px; align-items:center; flex-wrap:wrap}
+
+.btn{
+  border:1px solid var(--line-2); background:var(--surface); color:var(--ink-2);
+  padding:7px 13px; border-radius:9px; cursor:pointer; font-size:12.5px; font-weight:500;
+  display:inline-flex; align-items:center; gap:6px; transition:.15s;
+}
+.btn:hover{border-color:var(--brand); color:var(--brand); background:var(--surface-2)}
+.btn.primary{background:var(--brand); border-color:var(--brand); color:#fff}
+.btn.primary:hover{background:var(--brand-ink); color:#fff}
+.btn.ghost{background:transparent; border-color:transparent}
+.btn[disabled]{opacity:.45; cursor:not-allowed}
+
+/* ===== بارگذاری فایل ===== */
+.sources{display:grid; grid-template-columns:1fr 1fr; gap:14px; margin-top:18px}
+@media(max-width:760px){.sources{grid-template-columns:1fr}}
+.drop{
+  background:var(--surface); border:1.5px dashed var(--line-2); border-radius:var(--radius);
+  padding:16px 18px; display:flex; gap:14px; align-items:center; transition:.18s; cursor:pointer;
+}
+.drop:hover,.drop.over{border-color:var(--brand-2); background:var(--surface-2)}
+.drop.filled{border-style:solid; border-color:var(--line)}
+.drop-ic{
+  width:40px; height:40px; border-radius:10px; flex:none; display:grid; place-items:center;
+  background:var(--mute-bg); color:var(--brand);
+}
+.drop.filled .drop-ic{background:var(--ok-bg); color:var(--ok)}
+.drop-txt{min-width:0; flex:1}
+.drop-txt b{display:block; font-size:13.5px; font-weight:600}
+.drop-txt span{display:block; font-size:11.5px; color:var(--ink-3); overflow:hidden; text-overflow:ellipsis; white-space:nowrap}
+.drop input{display:none}
+
+.notice{
+  margin-top:14px; padding:10px 14px; border-radius:10px; font-size:12.5px;
+  background:var(--diff-bg); color:var(--diff); border:1px solid transparent;
+  display:flex; gap:10px; align-items:center; flex-wrap:wrap;
+}
+.notice.err{background:var(--lo-bg); color:var(--lo)}
+.notice.info{background:var(--ok-bg); color:var(--ok)}
+.notice .btn{background:transparent; border-color:currentColor; color:inherit; padding:3px 9px}
+
+/* ===== نوار فیلتر ===== */
+.filters{
+  display:flex; gap:10px; align-items:center; flex-wrap:wrap; margin-top:18px;
+  background:var(--surface); border:1px solid var(--line); border-radius:var(--radius);
+  padding:10px 14px;
+}
+.flabel{font-size:11.5px; color:var(--ink-3); letter-spacing:.04em}
+.chip{
+  border:1px solid var(--line-2); background:transparent; color:var(--ink-2);
+  border-radius:999px; padding:4px 12px; font-size:12px; cursor:pointer; transition:.15s;
+}
+.chip:hover{border-color:var(--brand)}
+.chip[aria-pressed="true"]{background:var(--brand); border-color:var(--brand); color:#fff}
+.sep{width:1px; align-self:stretch; background:var(--line); margin-inline:4px}
+.search{
+  border:1px solid var(--line-2); background:var(--surface-2); border-radius:9px;
+  padding:6px 12px; font-size:12.5px; min-width:190px; flex:1; max-width:280px;
+}
+
+/* ===== کارت‌های کلیدی ===== */
+.kpis{display:grid; grid-template-columns:repeat(5,1fr); gap:12px; margin-top:16px}
+@media(max-width:980px){.kpis{grid-template-columns:repeat(2,1fr)}}
+@media(max-width:420px){.kpis{grid-template-columns:1fr}}
+.kpi{background:var(--surface); border:1px solid var(--line); border-radius:var(--radius); padding:14px 16px}
+.kpi .k{font-size:11.5px; color:var(--ink-3)}
+.kpi .v{font-family:'Markazi Text',serif; font-size:34px; font-weight:700; line-height:1.1; font-variant-numeric:tabular-nums}
+.kpi .s{font-size:11.5px; color:var(--ink-3)}
+.kpi.alert{border-color:var(--lo); background:var(--lo-bg)}
+.kpi.alert .v,.kpi.alert .k,.kpi.alert .s{color:var(--lo)}
+
+.bar-track{height:5px; border-radius:3px; background:var(--line); overflow:hidden; margin-top:8px}
+.bar-fill{height:100%; background:linear-gradient(90deg,var(--brand-2),var(--brand)); border-radius:3px}
+
+/* ===== نمودارها ===== */
+.charts{display:grid; grid-template-columns:1.15fr 1fr; gap:12px; margin-top:12px}
+@media(max-width:860px){.charts{grid-template-columns:1fr}}
+.panel{background:var(--surface); border:1px solid var(--line); border-radius:var(--radius); padding:16px 18px}
+.panel h3{font-size:13px; font-weight:600; color:var(--ink-2)}
+.panel .hint{font-size:11.5px; color:var(--ink-3); margin:2px 0 12px}
+
+.dist{display:flex; align-items:flex-end; gap:10px; height:130px; padding-top:6px}
+.dist .col{flex:1; display:flex; flex-direction:column; justify-content:flex-end; align-items:center; gap:5px; height:100%}
+.dist .bar{width:100%; border-radius:6px 6px 3px 3px; background:var(--brand); min-height:2px; transition:height .4s}
+.dist .bar.b5{background:var(--brand-2)}
+.dist .bar.b4{background:color-mix(in srgb,var(--brand-2) 55%, var(--brand))}
+.dist .bar.b3{background:var(--brand)}
+.dist .bar.b2{background:var(--diff)}
+.dist .bar.b1{background:var(--lo)}
+.dist .n{font-size:11.5px; font-variant-numeric:tabular-nums; color:var(--ink-2)}
+.dist .lbl{font-size:11px; color:var(--ink-3)}
+.avg-line{display:flex; justify-content:space-between; font-size:11.5px; color:var(--ink-3); margin-top:8px; border-top:1px dashed var(--line-2); padding-top:8px}
+
+.tagbars{display:flex; flex-direction:column; gap:9px}
+.tagbar{display:grid; grid-template-columns:130px 1fr 34px; gap:10px; align-items:center; font-size:12px}
+.tagbar .t{white-space:nowrap; overflow:hidden; text-overflow:ellipsis}
+.tagbar .track{display:block; height:9px; background:var(--line); border-radius:5px; overflow:hidden}
+.tagbar .fill{display:block; height:100%; border-radius:5px; min-width:4px}
+.tagbar .c{text-align:left; font-variant-numeric:tabular-nums; color:var(--ink-2)}
+
+/* ===== تب‌ها ===== */
+.tabs{display:flex; gap:4px; margin-top:20px; border-bottom:1px solid var(--line); overflow-x:auto; scrollbar-width:thin}
+.tab{
+  border:0; background:transparent; padding:10px 15px; font-size:13px; font-weight:500;
+  color:var(--ink-3); cursor:pointer; border-bottom:2px solid transparent; white-space:nowrap;
+}
+.tab:hover{color:var(--ink)}
+.tab[aria-selected="true"]{color:var(--brand); border-bottom-color:var(--brand); font-weight:600}
+.tab .cnt{font-size:11px; color:var(--ink-3); font-variant-numeric:tabular-nums}
+
+.tabpanel{margin-top:14px; margin-bottom:40px}
+.tablewrap{background:var(--surface); border:1px solid var(--line); border-radius:var(--radius); overflow:auto; max-height:74vh}
+table{border-collapse:separate; border-spacing:0; width:100%; font-size:12.5px}
+thead th{
+  position:sticky; top:0; z-index:2; background:var(--surface-2); text-align:right;
+  padding:10px 12px; font-weight:600; font-size:11.5px; color:var(--ink-2);
+  border-bottom:1px solid var(--line); white-space:nowrap;
+}
+tbody td{padding:9px 12px; border-bottom:1px solid var(--line); vertical-align:middle}
+tbody tr:last-child td{border-bottom:0}
+tbody tr:hover td{background:var(--surface-2)}
+tbody tr.clickable{cursor:pointer}
+td.num,th.num{text-align:center; font-variant-numeric:tabular-nums; white-space:nowrap}
+td.nm{font-weight:600; white-space:nowrap}
+.empty{padding:40px 20px; text-align:center; color:var(--ink-3); font-size:13px}
+.sub{margin:0 0 10px; font-size:12px; color:var(--ink-3)}
+td.calc{font-weight:700; color:var(--brand); font-size:13px}
+td.dec{min-width:210px}
+.sel-dec{border:1px solid var(--line-2); background:var(--surface-2); color:var(--ink); border-radius:8px; padding:4px 8px; font-size:11.5px; width:100%; max-width:210px}
+.inp-score{margin-top:5px; border:1px solid var(--diff); background:var(--diff-bg); color:var(--diff); border-radius:8px; padding:4px 8px; font-size:12px; width:100%; max-width:210px; font-variant-numeric:tabular-nums}
+.finalv{display:inline-block; min-width:44px; padding:2px 8px; border-radius:7px; font-weight:700; font-variant-numeric:tabular-nums}
+.finalv.okv{background:var(--ok-bg); color:var(--ok)}
+.finalv.changed{background:var(--diff-bg); color:var(--diff)}
+.finalv.off{color:var(--ink-3)}
+
+.tag{display:inline-block; padding:2px 10px; border-radius:999px; font-size:11.5px; font-weight:600; white-space:nowrap}
+.tag.t-hi{background:var(--hi-bg); color:var(--hi)}
+.tag.t-lo{background:var(--lo-bg); color:var(--lo)}
+.tag.t-diff{background:var(--diff-bg); color:var(--diff)}
+.tag.t-ok{background:var(--ok-bg); color:var(--ok)}
+.tag.t-mute{background:var(--mute-bg); color:var(--mute)}
+.tag.t-conf{background:var(--conf-bg); color:var(--conf)}
+.lean{display:inline-block; margin-inline-start:6px; padding:1px 7px; border-radius:999px; font-size:10.5px; font-weight:600; white-space:nowrap; cursor:help}
+.ln-pos{background:var(--ok-bg); color:var(--ok)}
+.ln-neg{background:var(--lo-bg); color:var(--lo)}
+.ln-mix{background:var(--diff-bg); color:var(--diff)}
+.ln-neu{background:var(--mute-bg); color:var(--mute)}
+.lean.conf{outline:1.5px solid var(--conf); outline-offset:1px}
+.cmt{display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden;
+     margin-top:5px; padding:5px 8px; border-radius:7px; background:var(--surface-2);
+     border-inline-start:2px solid var(--line-2); font-size:11.5px; color:var(--ink-2); max-width:340px}
+.cmtbox{margin-top:7px; padding:8px 11px; border-radius:8px; background:var(--surface-2);
+        border-inline-start:3px solid var(--brand-2); font-size:12.5px; color:var(--ink-2); line-height:1.9}
+.qt3{display:-webkit-box; -webkit-line-clamp:3; -webkit-box-orient:vertical; overflow:hidden; color:var(--ink-2); max-width:560px}
+tbody tr.rowconf td{background:var(--conf-bg)}
+tbody tr.rowconf:hover td{background:var(--conf-bg); filter:brightness(.97)}
+
+.dots{display:inline-flex; gap:3px; align-items:center}
+.dot{width:20px; height:20px; border-radius:6px; display:grid; place-items:center; font-size:11px; font-weight:600; font-variant-numeric:tabular-nums}
+.dot.s5{background:var(--brand-2); color:#012B2A}
+.dot.s4{background:color-mix(in srgb,var(--brand-2) 35%, transparent); color:var(--brand)}
+.dot.s3{background:var(--mute-bg); color:var(--ink-2)}
+.dot.s2{background:var(--diff-bg); color:var(--diff)}
+.dot.s1{background:var(--lo-bg); color:var(--lo)}
+.dot.miss{background:repeating-linear-gradient(45deg,var(--lo-bg),var(--lo-bg) 3px,transparent 3px,transparent 6px); color:var(--lo); border:1px solid var(--lo)}
+.dot.none{background:transparent; border:1px dashed var(--line-2); color:var(--ink-3)}
+
+.cell-missing{color:var(--lo); background:var(--lo-bg); border-radius:6px; padding:2px 8px; font-size:11.5px; display:inline-block; font-weight:500}
+.cell-none{color:var(--ink-3); font-size:11.5px}
+.qt{color:var(--ink-2); max-width:420px; display:-webkit-box; -webkit-line-clamp:3; -webkit-box-orient:vertical; overflow:hidden}
+.drawer-bd .qt,.qrow .qt{-webkit-line-clamp:unset; max-width:none}
+.rev{color:var(--ink-3); font-size:11px; display:block}
+
+/* ===== کشو جزئیات ===== */
+.scrim{position:fixed; inset:0; background:rgba(1,26,36,.45); z-index:60; opacity:0; pointer-events:none; transition:.2s}
+.scrim.on{opacity:1; pointer-events:auto}
+/* در چیدمان راست‌به‌چپ inline-start یعنی لبهٔ راست؛ پس مخفی‌سازی با جابه‌جایی به راست است */
+.drawer{
+  position:fixed; inset-block:0; inset-inline-start:0; width:min(520px,94vw); z-index:61;
+  background:var(--surface); border-inline-end:1px solid var(--line);
+  transform:translateX(102%); transition:transform .25s cubic-bezier(.4,0,.2,1);
+  display:flex; flex-direction:column; box-shadow:var(--shadow); visibility:hidden;
+}
+.drawer.on{transform:none; visibility:visible}
+.drawer-hd{padding:18px 20px 12px; border-bottom:1px solid var(--line); display:flex; gap:12px; align-items:flex-start}
+.drawer-hd h2{font-size:20px}
+.drawer-bd{padding:18px 20px 40px; overflow:auto; display:flex; flex-direction:column; gap:16px}
+.dsec h4{margin:0 0 6px; font-size:11.5px; color:var(--ink-3); font-weight:600; letter-spacing:.04em}
+.why{background:var(--surface-2); border-inline-start:3px solid var(--brand-2); border-radius:8px; padding:11px 14px; font-size:12.5px; line-height:2}
+.qrow{border:1px solid var(--line); border-radius:10px; padding:11px 13px; display:flex; gap:11px; align-items:flex-start; margin-bottom:8px}
+.qrow.missing{border-color:var(--lo); background:var(--lo-bg)}
+.qrow .who{font-weight:600; font-size:12.5px}
+.qrow .role{font-size:11px; color:var(--ink-3)}
+.qrow .ans{font-size:12.5px; color:var(--ink-2); margin-top:3px}
+
+/* ===== راهنما ===== */
+.guide{display:grid; grid-template-columns:repeat(auto-fit,minmax(280px,1fr)); gap:12px}
+.guide .panel p{margin:0 0 8px; font-size:12.5px; color:var(--ink-2)}
+.guide .panel ul{margin:0; padding-inline-start:18px; font-size:12.5px; color:var(--ink-2)}
+.guide .panel li{margin-bottom:5px}
+.kv{display:grid; grid-template-columns:auto 1fr; gap:4px 12px; font-size:12.5px}
+.kv dt{color:var(--ink-3)}
+.kv dd{margin:0; font-variant-numeric:tabular-nums}
+code{background:var(--mute-bg); padding:1px 6px; border-radius:5px; font-size:11.5px; font-family:ui-monospace,monospace}
+footer{padding:24px 0 40px; color:var(--ink-3); font-size:11.5px; text-align:center}
+.sr{position:absolute; width:1px; height:1px; overflow:hidden; clip:rect(0 0 0 0)}
+</style>
+</head>
+<body>
+
+<header class="top">
+  <div class="wrap top-in">
+    <div class="brand">
+      <img src="assets/mark.png" alt="کارگزاری مفید">
+      <div class="brand-txt">
+        <h1 class="display">داشبورد تجربه همکاری</h1>
+        <p>ارزیابی ۳۶۰ درجه — مدیران و ذی‌نفعان</p>
+      </div>
+    </div>
+    <div class="top-actions">
+      <button class="btn primary" id="btnShare" type="button">ذخیره برای همه</button>
+      <button class="btn" id="btnExport" type="button">خروجی اکسل</button>
+      <button class="btn ghost" id="btnReset" type="button">پاک کردن داده‌ها</button>
+      <button class="btn ghost" id="btnTheme" type="button" aria-label="تغییر تم روشن و تیره">◑ تم</button>
+    </div>
+  </div>
+</header>
+
+<main class="wrap">
+
+  <section class="sources" aria-label="منابع داده">
+    <label class="drop" id="dropXlsx" for="fileXlsx">
+      <span class="drop-ic" aria-hidden="true">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 4h16v16H4z"/><path d="M4 10h16M10 4v16"/></svg>
+      </span>
+      <span class="drop-txt">
+        <b>۱ — فایل ذی‌نفعان (اکسل)</b>
+        <span id="lblXlsx">ستون‌ها: نام همکار، مدیر مستقیم، ذی‌نفع ۱ تا ۳</span>
+      </span>
+      <input type="file" id="fileXlsx" accept=".xlsx,.xls,.csv">
+    </label>
+
+    <label class="drop" id="dropHtml" for="fileHtml">
+      <span class="drop-ic" aria-hidden="true">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5M9 13h6M9 17h4"/></svg>
+      </span>
+      <span class="drop-txt">
+        <b>۲ — گزارش نظرها (HTML از Jira)</b>
+        <span id="lblHtml">خروجی فیلتر «تجربه همکاری» با فرمت HTML</span>
+      </span>
+      <input type="file" id="fileHtml" accept=".html,.htm,.xls">
+    </label>
+  </section>
+
+  <div id="notices"></div>
+
+  <section class="filters" id="filters" aria-label="فیلترها">
+    <span class="flabel">سال ارزیابی</span>
+    <span id="yearChips" style="display:flex;gap:6px;flex-wrap:wrap"></span>
+    <span class="sep"></span>
+    <span class="flabel">تگ</span>
+    <span id="tagChips" style="display:flex;gap:6px;flex-wrap:wrap"></span>
+    <span class="sep"></span>
+    <input class="search" id="search" type="search" placeholder="جست‌وجوی نام…" aria-label="جست‌وجوی نام">
+  </section>
+
+  <section class="kpis" id="kpis" aria-label="شاخص‌های کلیدی"></section>
+
+  <section class="charts">
+    <div class="panel">
+      <h3>توزیع نمره‌ها</h3>
+      <p class="hint" id="distHint"></p>
+      <div class="dist" id="dist"></div>
+      <div class="avg-line" id="distAvg"></div>
+    </div>
+    <div class="panel">
+      <h3>تگ‌های تشخیص‌داده‌شده</h3>
+      <p class="hint">هر همکار می‌تواند بیش از یک تگ بگیرد.</p>
+      <div class="tagbars" id="tagbars"></div>
+    </div>
+  </section>
+
+  <nav class="tabs" id="tabs" role="tablist"></nav>
+  <section class="tabpanel" id="panel" role="tabpanel"></section>
+</main>
+
+<footer class="wrap">
+  همهٔ پردازش‌ها داخل مرورگر شما انجام می‌شود؛ هیچ فایلی به سرور ارسال نمی‌شود.
+</footer>
+
+<div class="scrim" id="scrim"></div>
+<aside class="drawer" id="drawer" aria-hidden="true" aria-label="جزئیات همکار">
+  <div class="drawer-hd">
+    <div style="flex:1;min-width:0">
+      <h2 class="display" id="dName">—</h2>
+      <div id="dTags" style="display:flex;gap:6px;flex-wrap:wrap;margin-top:4px"></div>
+    </div>
+    <button class="btn ghost" id="dClose" type="button" aria-label="بستن">✕</button>
+  </div>
+  <div class="drawer-bd" id="dBody"></div>
+</aside>
+
+<!-- نسخهٔ محلی SheetJS تا داشبورد بدون اینترنت هم کار کند؛ اگر نبود، از CDN گرفته می‌شود -->
+<script src="vendor/xlsx.full.min.js" onerror="var s=document.createElement('script');s.src='https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js';document.head.appendChild(s);this.remove()"></script>
+<script src="core.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
