@@ -22,6 +22,7 @@
   --ok:#25795A; --ok-bg:#E3F2EA;
   --conf:#A8326B; --conf-bg:#FBE7F0;
   --mute:#6D8893; --mute-bg:#EDF2F3;
+  --bar:#0E7490; --bar-low:#C2413A; --iqr:#E8F1F4;
   --shadow:0 1px 2px rgba(1,74,105,.06), 0 8px 24px -16px rgba(1,74,105,.28);
   --radius:12px;
   color-scheme:light;
@@ -38,6 +39,7 @@
     --ok:#7FD4AC; --ok-bg:#123B2D;
     --conf:#F3A0C6; --conf-bg:#432034;
     --mute:#9DB6BF; --mute-bg:#173B49;
+    --bar:#2AA7B8; --bar-low:#F09B92; --iqr:#17475A;
     --shadow:0 1px 2px rgba(0,0,0,.3), 0 10px 28px -18px rgba(0,0,0,.8);
     color-scheme:dark;
   }
@@ -53,6 +55,7 @@
   --ok:#7FD4AC; --ok-bg:#123B2D;
   --conf:#F3A0C6; --conf-bg:#432034;
   --mute:#9DB6BF; --mute-bg:#173B49;
+  --bar:#2AA7B8; --bar-low:#F09B92; --iqr:#17475A;
   --shadow:0 1px 2px rgba(0,0,0,.3), 0 10px 28px -18px rgba(0,0,0,.8);
   color-scheme:dark;
 }
@@ -106,6 +109,7 @@ header.top{
 .drop{
   background:var(--surface); border:1.5px dashed var(--line-2); border-radius:var(--radius);
   padding:16px 18px; display:flex; gap:14px; align-items:center; transition:.18s; cursor:pointer;
+  min-width:0; overflow:hidden;
 }
 .drop:hover,.drop.over{border-color:var(--brand-2); background:var(--surface-2)}
 .drop.filled{border-style:solid; border-color:var(--line)}
@@ -115,7 +119,7 @@ header.top{
 }
 .drop.filled .drop-ic{background:var(--ok-bg); color:var(--ok)}
 .drop-txt{min-width:0; flex:1}
-.drop-txt b{display:block; font-size:13.5px; font-weight:600}
+.drop-txt b{display:block; font-size:13.5px; font-weight:600; overflow:hidden; text-overflow:ellipsis; white-space:nowrap}
 .drop-txt span{display:block; font-size:11.5px; color:var(--ink-3); overflow:hidden; text-overflow:ellipsis; white-space:nowrap}
 .drop input{display:none}
 
@@ -186,6 +190,77 @@ header.top{
 .tagbar .track{display:block; height:9px; background:var(--line); border-radius:5px; overflow:hidden}
 .tagbar .fill{display:block; height:100%; border-radius:5px; min-width:4px}
 .tagbar .c{text-align:left; font-variant-numeric:tabular-nums; color:var(--ink-2)}
+
+/* ===== توزیع نمرهٔ نهایی ===== */
+.seg{display:inline-flex; gap:2px; padding:3px; background:var(--mute-bg); border-radius:9px}
+.seg button{border:0; background:transparent; color:var(--ink-2); font:inherit; font-size:12px;
+  padding:5px 12px; border-radius:7px; cursor:pointer; white-space:nowrap}
+.seg button[aria-pressed="true"]{background:var(--surface); color:var(--brand); font-weight:600; box-shadow:var(--shadow)}
+
+.hist{position:relative; margin-top:18px}
+.hist-plot{position:relative; height:190px; border-bottom:1px solid var(--line-2)}
+.hist-grid{position:absolute; inset:0; pointer-events:none}
+.hist-grid i{position:absolute; left:0; right:0; height:1px; background:var(--line)}
+.hist-iqr{position:absolute; top:0; bottom:0; background:var(--iqr); border-radius:4px}
+.hbar{position:absolute; bottom:0; background:var(--bar); border-radius:4px 4px 0 0; min-height:2px;
+  transition:height .35s ease; cursor:default}
+.hbar.low{background:var(--bar-low)}
+.hbar:hover{filter:brightness(1.12)}
+.hbar.zero{background:var(--line); min-height:2px; box-shadow:none}
+.hn{position:absolute; text-align:center; font-size:11.5px; font-variant-numeric:tabular-nums;
+  color:var(--ink-2); pointer-events:none}
+.hmark{position:absolute; top:0; bottom:0; width:2px; background:var(--ink); border-radius:1px; pointer-events:none}
+.hmark.med{width:1px; background:var(--ink-3)}
+.hmark-lbl{position:absolute; top:-2px; transform:translateX(-50%); background:var(--ink); color:var(--surface);
+  font-size:10.5px; padding:2px 7px; border-radius:6px; white-space:nowrap; font-variant-numeric:tabular-nums; pointer-events:none}
+.hmark-lbl.med{background:var(--ink-3)}
+.hist-axis{position:relative; height:30px; margin-top:4px}
+.hist-axis span{position:absolute; transform:translateX(-50%); font-size:11px; color:var(--ink-3); font-variant-numeric:tabular-nums}
+.hist-axis .cap{position:absolute; left:50%; top:15px; transform:translateX(-50%); font-size:11px; color:var(--ink-3)}
+.hlegend{display:flex; flex-wrap:wrap; gap:14px; margin-top:14px; font-size:11.5px; color:var(--ink-3)}
+.hlegend span{display:inline-flex; align-items:center; gap:6px}
+.hlegend i{width:11px; height:11px; border-radius:3px; display:inline-block}
+.hlegend i.line{width:2px; height:12px; border-radius:1px}
+.hlegend em{font-style:normal}
+
+.statgrid{display:grid; grid-template-columns:repeat(6,1fr); gap:10px; margin-top:12px}
+@media(max-width:980px){.statgrid{grid-template-columns:repeat(3,1fr)}}
+@media(max-width:520px){.statgrid{grid-template-columns:repeat(2,1fr)}}
+.stat{background:var(--surface); border:1px solid var(--line); border-radius:var(--radius); padding:11px 13px}
+.stat .k{font-size:11px; color:var(--ink-3); white-space:nowrap; overflow:hidden; text-overflow:ellipsis}
+.stat .v{font-family:'Markazi Text',serif; font-size:27px; font-weight:700; line-height:1.15; font-variant-numeric:tabular-nums}
+.stat .s{font-size:10.5px; color:var(--ink-3)}
+
+.bandrow{display:grid; grid-template-columns:150px 74px 1fr 76px; gap:10px; align-items:center;
+  font-size:12px; padding:7px 0; border-top:1px solid var(--line)}
+.bandrow:first-of-type{border-top:0}
+.bandrow .t{font-weight:600; color:var(--ink)}
+.bandrow .t small{display:block; font-weight:400; font-size:10.5px; color:var(--ink-3)}
+.bandrow .r{font-variant-numeric:tabular-nums; color:var(--ink-3); font-size:11px}
+.bandrow .track{display:block; height:10px; background:var(--mute-bg); border-radius:5px; overflow:hidden}
+.bandrow .fill{display:block; height:100%; border-radius:5px; min-width:3px; background:var(--bar)}
+.bandrow.lowband .fill{background:var(--bar-low)}
+.bandrow .c{text-align:left; font-variant-numeric:tabular-nums; color:var(--ink-2); font-size:11.5px}
+@media(max-width:640px){.bandrow{grid-template-columns:1fr 60px; gap:6px}
+  .bandrow .r,.bandrow .track{grid-column:1/-1}}
+
+.insights{display:grid; grid-template-columns:1fr 1fr; gap:10px; margin-top:12px}
+@media(max-width:860px){.insights{grid-template-columns:1fr}}
+.ins{background:var(--surface); border:1px solid var(--line); border-inline-start:3px solid var(--mute);
+  border-radius:var(--radius); padding:12px 14px}
+.ins h4{margin:0 0 5px; font-size:12.5px; font-weight:600; display:flex; align-items:center; gap:7px}
+.ins p{margin:0; font-size:12.5px; line-height:1.85; color:var(--ink-2)}
+.ins .badge{font-size:10px; padding:1px 7px; border-radius:20px; font-weight:500}
+.ins.k-bad{border-inline-start-color:var(--lo)} .ins.k-bad h4{color:var(--lo)} .ins.k-bad .badge{background:var(--lo-bg); color:var(--lo)}
+.ins.k-warn{border-inline-start-color:var(--diff)} .ins.k-warn h4{color:var(--diff)} .ins.k-warn .badge{background:var(--diff-bg); color:var(--diff)}
+.ins.k-ok{border-inline-start-color:var(--ok)} .ins.k-ok h4{color:var(--ok)} .ins.k-ok .badge{background:var(--ok-bg); color:var(--ok)}
+.ins.k-info{border-inline-start-color:var(--brand)} .ins.k-info h4{color:var(--brand)} .ins.k-info .badge{background:var(--mute-bg); color:var(--ink-2)}
+
+.extremes{display:grid; grid-template-columns:1fr 1fr; gap:10px; margin-top:10px}
+@media(max-width:640px){.extremes{grid-template-columns:1fr}}
+.xlist{font-size:12.5px}
+.xlist li{margin:5px 0; display:flex; justify-content:space-between; gap:10px}
+.xlist b{font-variant-numeric:tabular-nums; font-weight:600}
 
 /* ===== تب‌ها ===== */
 .tabs{display:flex; gap:4px; margin-top:20px; border-bottom:1px solid var(--line); overflow-x:auto; scrollbar-width:thin}
@@ -357,7 +432,7 @@ footer{padding:24px 0 40px; color:var(--ink-3); font-size:11.5px; text-align:cen
 
   <section class="charts">
     <div class="panel">
-      <h3>توزیع نمره‌ها</h3>
+      <h3>توزیع نمرهٔ تک‌تک نظرها</h3>
       <p class="hint" id="distHint"></p>
       <div class="dist" id="dist"></div>
       <div class="avg-line" id="distAvg"></div>

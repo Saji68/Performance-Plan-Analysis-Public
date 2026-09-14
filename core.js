@@ -405,6 +405,248 @@
   const mean = a => a.reduce((s, x) => s + x, 0) / a.length;
   const r2 = x => Math.round(x * 100) / 100;
 
+  /* ================= تحلیل توزیع نمرهٔ نهایی ================= */
+
+  /* باندهای عملکردی روی مقیاس ۱ تا ۵ (بازهٔ پایین بسته، بالا باز) */
+  const BANDS = [
+    { key: 'b5', lo: 4.5, hi: 5.01, label: 'برجسته', range: '۴٫۵ و بالاتر', hint: 'فراتر از انتظار نقش' },
+    { key: 'b4', lo: 4.0, hi: 4.5, label: 'بالاتر از انتظار', range: '۴ تا ۴٫۵', hint: 'مستمراً بالای سطح انتظار' },
+    { key: 'b3', lo: 3.0, hi: 4.0, label: 'مطابق انتظار', range: '۳ تا ۴', hint: 'عملکرد مورد انتظار نقش' },
+    { key: 'b2', lo: 2.0, hi: 3.0, label: 'نیازمند بهبود', range: '۲ تا ۳', hint: 'فاصله تا سطح انتظار' },
+    { key: 'b1', lo: 0, hi: 2.0, label: 'نیازمند اقدام', range: 'زیر ۲', hint: 'نیازمند برنامهٔ اصلاحی' }
+  ];
+  const bandOf = v => BANDS.find(b => v >= b.lo && v < b.hi) || BANDS[BANDS.length - 1];
+
+  function quantile(sorted, q) {
+    if (!sorted.length) return null;
+    if (sorted.length === 1) return sorted[0];
+    const pos = (sorted.length - 1) * q, i = Math.floor(pos), frac = pos - i;
+    return sorted[i + 1] === undefined ? sorted[i] : sorted[i] + frac * (sorted[i + 1] - sorted[i]);
+  }
+
+  /* آمار توصیفی یک بردار نمره */
+  function describe(vals) {
+    if (!vals.length) return null;
+    const s = vals.slice().sort((a, b) => a - b);
+    const n = s.length, m = mean(s);
+    const sd = n > 1 ? Math.sqrt(s.reduce((a, x) => a + (x - m) * (x - m), 0) / (n - 1)) : 0;
+    const q1 = quantile(s, 0.25), med = quantile(s, 0.5), q3 = quantile(s, 0.75);
+    const skew = (sd > 0 && n > 2)
+      ? (n / ((n - 1) * (n - 2))) * s.reduce((a, x) => a + Math.pow((x - m) / sd, 3), 0)
+      : 0;
+    return {
+      n: n, mean: r2(m), sd: r2(sd), min: s[0], max: s[n - 1],
+      q1: r2(q1), median: r2(med), q3: r2(q3), iqr: r2(q3 - q1),
+      skew: r2(skew), cv: m ? r2(sd / m) : 0, sorted: s
+    };
+  }
+
+  /* هیستوگرام با گام دلخواه روی بازهٔ ۱ تا ۵ */
+  function histogram(items, step) {
+    const st = step || 0.5, bins = [];
+    for (let x = 1; x < 5 - 1e-9; x = r2(x + st)) {
+      bins.push({ lo: r2(x), hi: r2(Math.min(5, x + st)), n: 0, names: [] });
+    }
+    items.forEach(it => {
+      let i = Math.floor((it.v - 1) / st);
+      if (i < 0) i = 0; if (i >= bins.length) i = bins.length - 1;
+      bins[i].n++; bins[i].names.push(it.name);
+    });
+    return bins;
+  }
+
+  /* برچسب وضعیت شکل توزیع */
+  const SHAPE = {
+    tight: 'فشرده', wide: 'پراکنده', normal: 'متعارف',
+    left: 'چوله به چپ', right: 'چوله به راست', sym: 'تقریباً متقارن'
+  };
+
+  /**
+   * تحلیل توزیع نمرهٔ نهایی.
+   * people: خروجی compute().people
+   * opts.approvedOf(person) → عدد یا null (نمرهٔ تأییدشده در کالیبراسیون)
+   */
+  function distribution(people, opts) {
+    const o = Object.assign({ step: 0.5, inflateBand: 4, inflateShare: 0.6, tightSd: 0.45, wideSd: 0.9, mode: 'calc' }, opts || {});
+    const isApproved = o.mode === 'approved';
+    const approvedOf = o.approvedOf || (() => null);
+
+    const scored = people.filter(p => p.final !== null);
+    const noScore = people.filter(p => p.final === null);
+    const items = scored.map(p => ({ name: p.name, v: p.final, tags: p.tags }));
+    const st = describe(items.map(i => i.v));
+    const bins = histogram(items, o.step);
+
+    /* مبنای نمره: هر دو طرف / فقط مدیر / فقط ذی‌نفع */
+    const basis = { full: [], mgr: [], stk: [] };
+    scored.forEach(p => {
+      if (p.mgrScore !== null && p.stkMean !== null) basis.full.push(p.name);
+      else if (p.mgrScore !== null) basis.mgr.push(p.name);
+      else basis.stk.push(p.name);
+    });
+
+    /* باندهای عملکردی */
+    const bands = BANDS.map(b => {
+      const list = items.filter(i => i.v >= b.lo && i.v < b.hi);
+      return Object.assign({}, b, {
+        n: list.length, share: st ? list.length / st.n : 0,
+        names: list.sort((a, b2) => b2.v - a.v).map(i => i.name + ' (' + faDigits(i.v.toFixed(2)).replace(/\./g, '٫') + ')')
+      });
+    });
+
+    /* کالیبراسیون: نمرهٔ تأییدشده در برابر محاسبه‌شده */
+    const calib = { decided: 0, changed: 0, pairs: [], shift: null, approvedStats: null };
+    const appVals = [];
+    scored.forEach(p => {
+      const a = approvedOf(p);
+      if (a === null || a === undefined || !isFinite(a)) return;
+      calib.decided++;
+      appVals.push(a);
+      const d = r2(a - p.final);
+      if (Math.abs(d) >= 0.01) { calib.changed++; calib.pairs.push({ name: p.name, from: p.final, to: r2(a), delta: d }); }
+    });
+    calib.pairs.sort((a, b) => Math.abs(b.delta) - Math.abs(a.delta));
+    if (appVals.length) {
+      calib.approvedStats = describe(appVals);
+      calib.shift = r2(calib.approvedStats.mean - mean(scored.filter(p => {
+        const a = approvedOf(p); return a !== null && a !== undefined && isFinite(a);
+      }).map(p => p.final)));
+    }
+
+    if (!st) return { stats: null, bins: bins, bands: bands, basis: basis, calib: calib, noScore: noScore.map(p => p.name), insights: [], shape: null, top: [], bottom: [] };
+
+    /* شکل توزیع */
+    const topShare = bands.filter(b => b.lo >= o.inflateBand).reduce((s, b) => s + b.share, 0);
+    const nearMean = items.filter(i => Math.abs(i.v - st.mean) <= 0.5).length / st.n;
+    const biggest = bins.reduce((a, b) => b.n > a.n ? b : a, bins[0]);
+    const shape = {
+      spread: st.sd <= o.tightSd ? 'tight' : st.sd >= o.wideSd ? 'wide' : 'normal',
+      skewDir: st.skew <= -0.35 ? 'left' : st.skew >= 0.35 ? 'right' : 'sym',
+      topShare: r2(topShare), nearMean: r2(nearMean),
+      biggest: biggest, distinct: new Set(items.map(i => i.v)).size
+    };
+
+    const sortedItems = items.slice().sort((a, b) => b.v - a.v);
+    const top = sortedItems.slice(0, 3);
+    const bottom = sortedItems.slice(-3).reverse();
+
+    /* ---- جملات تحلیلی ---- */
+    const ins = [];
+    const P = x => faDigits(Math.round(x * 100)) + '٪';
+    const N = (x, d) => faDigits(Number(x).toFixed(d === undefined ? 2 : d)).replace(/\./g, '٫');
+
+    ins.push({
+      kind: 'info', title: 'مرکز توزیع',
+      text: `نمرهٔ نهایی برای ${faDigits(st.n)} نفر محاسبه شده است. میانگین ${N(st.mean)} و میانه ${N(st.median)} است؛ ` +
+        (Math.abs(st.mean - st.median) < 0.1
+          ? 'نزدیکی این دو یعنی نمرهٔ چند نفر خاص، تصویر کلی را جابه‌جا نکرده است.'
+          : `فاصلهٔ ${N(Math.abs(st.mean - st.median))} میان آن‌ها یعنی چند نمرهٔ ${st.mean < st.median ? 'پایین' : 'بالا'} میانگین را نسبت به وضعیت اکثریت ${st.mean < st.median ? 'پایین' : 'بالا'} کشیده‌اند.`) +
+        ` نیمهٔ میانی افراد بین ${N(st.q1)} تا ${N(st.q3)} قرار دارند.`
+    });
+
+    if (shape.spread === 'tight') {
+      ins.push({
+        kind: 'warn', title: 'فشردگی نمرات',
+        text: `انحراف معیار فقط ${N(st.sd)} است و ${P(shape.nearMean)} افراد در فاصلهٔ نیم‌نمره‌ای از میانگین جمع شده‌اند. ` +
+          `عملاً همهٔ نمرات یک عدد را تکرار می‌کنند و این توزیع برای تصمیم‌هایی مثل ارتقا یا پاداش، قدرت تفکیک لازم را ندارد. ` +
+          `در جلسهٔ کالیبراسیون لازم است ارزیاب‌ها تفاوت‌های واقعی را صریح‌تر بیان کنند.`
+      });
+    } else if (shape.spread === 'wide') {
+      ins.push({
+        kind: 'warn', title: 'پراکندگی زیاد',
+        text: `انحراف معیار ${N(st.sd)} و دامنه از ${N(st.min)} تا ${N(st.max)} است. این پراکندگی یا واقعاً تفاوت عملکردی بزرگی را نشان می‌دهد، ` +
+          `یا نشانهٔ آن است که ارزیاب‌ها معیار مشترکی از «سطح انتظار» ندارند. پیش از استفاده از این نمرات، تب «ارزیاب‌ها» را برای تشخیص سخت‌گیرها و سهل‌گیرها ببینید.`
+      });
+    } else {
+      ins.push({
+        kind: 'ok', title: 'پراکندگی متعارف',
+        text: `انحراف معیار ${N(st.sd)} در محدودهٔ سالم است؛ نمرات نه آن‌قدر فشرده‌اند که تفکیک‌ناپذیر شوند و نه آن‌قدر پراکنده که به بی‌معیاری ارزیاب‌ها مشکوک شویم.`
+      });
+    }
+
+    if (Math.round(topShare * 100) >= Math.round(o.inflateShare * 100)) {
+      ins.push({
+        kind: 'bad', title: 'نشانهٔ تورم نمره',
+        text: `${P(topShare)} افراد نمرهٔ ${faDigits(o.inflateBand)} یا بالاتر گرفته‌اند. وقتی اکثریت در بالاترین باندها جمع می‌شوند، نمره دیگر عملکرد را از هم جدا نمی‌کند ` +
+          `و بیشتر بازتاب فرهنگ تعارف در ارزیابی است تا تفاوت واقعی. توصیه می‌شود در جلسهٔ کالیبراسیون، رتبه‌بندی نسبی افراد هم‌نقش بررسی شود، نه فقط عدد مطلق.`
+      });
+    }
+
+    if (shape.skewDir !== 'sym') {
+      ins.push({
+        kind: 'info', title: 'شکل توزیع: ' + SHAPE[shape.skewDir],
+        text: shape.skewDir === 'left'
+          ? `توده نمرات در سمت بالا جمع شده و دم توزیع به سمت پایین کشیده شده (شاخص چولگی ${N(Math.abs(st.skew))} به چپ). یعنی اکثریت نمرهٔ بالایی دارند و تعداد کمی به‌وضوح پایین‌تر هستند؛ همان چند نفر معمولاً موضوع اصلی جلسهٔ کالیبراسیون‌اند.`
+          : `توده نمرات در سمت پایین جمع شده و دم توزیع به سمت بالا کشیده شده (شاخص چولگی ${N(Math.abs(st.skew))} به راست). یعنی اکثریت در سطح میانی یا پایین‌اند و تعداد کمی به‌وضوح بالاتر؛ بررسی کنید آیا این چند نفر واقعاً متمایزند یا ارزیاب متفاوتی داشته‌اند.`
+      });
+    }
+
+    if (shape.biggest && st.n && shape.biggest.n / st.n >= 0.4) {
+      ins.push({
+        kind: 'warn', title: 'تمرکز در یک بازه',
+        text: `${P(shape.biggest.n / st.n)} افراد (${faDigits(shape.biggest.n)} نفر) در همان بازهٔ ${N(shape.biggest.lo, 1)} تا ${N(shape.biggest.hi, 1)} قرار گرفته‌اند. ` +
+          `درون این گروه، نمره تقریباً هیچ تمایزی ایجاد نمی‌کند و برای تصمیم‌گیری باید به متن نظرها و تگ‌ها تکیه کرد.`
+      });
+    }
+
+    if (basis.mgr.length || basis.stk.length) {
+      const part = [];
+      if (basis.mgr.length) part.push(`${faDigits(basis.mgr.length)} نفر فقط نمرهٔ مدیر دارند`);
+      if (basis.stk.length) part.push(`${faDigits(basis.stk.length)} نفر فقط نمرهٔ ذی‌نفعان`);
+      ins.push({
+        kind: 'bad', title: 'مبنای نمره یکسان نیست',
+        text: `نمرهٔ ${faDigits(basis.mgr.length + basis.stk.length)} نفر از ${faDigits(st.n)} نفر با فرمول کامل (۶۰٪ مدیر + ۴۰٪ ذی‌نفعان) ساخته نشده است: ${part.join(' و ')}. ` +
+          `نمرهٔ این افراد روی مقیاس متفاوتی نسبت به بقیه قرار دارد و مقایسهٔ مستقیم آن‌ها با کسانی که هر دو طرف را دارند، دقیق نیست. ` +
+          `بهترین اقدام، تکمیل ارزیابی‌های جامانده پیش از نهایی‌سازی است.`
+      });
+    }
+
+    const flaggedTop = items.filter(i => i.v >= o.inflateBand && i.tags.indexOf(TAGS.HIGH) !== -1).length;
+    const flaggedLow = items.filter(i => i.v <= 2.5 && i.tags.indexOf(TAGS.LOW) !== -1).length;
+    const flaggedDiff = items.filter(i => i.tags.indexOf(TAGS.DIFF) !== -1).length;
+    if (flaggedTop || flaggedLow || flaggedDiff) {
+      const part = [];
+      if (flaggedTop) part.push(`${faDigits(flaggedTop)} نفر از افراد بالای ${faDigits(o.inflateBand)} تگ «${TAGS.HIGH}» دارند`);
+      if (flaggedLow) part.push(`${faDigits(flaggedLow)} نفر در باندهای پایین تگ «${TAGS.LOW}» دارند`);
+      if (flaggedDiff) part.push(`${faDigits(flaggedDiff)} نفر تگ «${TAGS.DIFF}» دارند که نمرهٔ نهایی‌شان میانگین دو نگاه متفاوت است`);
+      ins.push({
+        kind: 'warn', title: 'کیفیت دادهٔ پشت نمره',
+        text: part.join('؛ ') + '. نمرهٔ نهایی این افراد پیش از تأیید باید در جلسه بررسی شود، چون عدد به‌تنهایی تصویر درستی نمی‌دهد.'
+      });
+    }
+
+    if (noScore.length) {
+      ins.push(isApproved ? {
+        kind: 'warn', title: 'هنوز تأیید نشده',
+        text: `${faDigits(noScore.length)} نفر هنوز نمرهٔ تأییدشده ندارند و در این نمودار نیامده‌اند. ` +
+          `تا وقتی وضعیت آن‌ها در تب «تحلیل و تگ‌ها» مشخص نشود، این توزیع فقط بخشی از سازمان را نشان می‌دهد.`
+      } : {
+        kind: 'bad', title: 'بدون نمرهٔ نهایی',
+        text: `${faDigits(noScore.length)} نفر هیچ نمره‌ای دریافت نکرده‌اند و در این توزیع نیامده‌اند: ${noScore.slice(0, 8).map(p => p.name).join('، ')}${noScore.length > 8 ? ' و ...' : ''}. ` +
+          `تا وقتی ارزیابی آن‌ها ثبت نشود، هر میانگین سازمانی ناقص است.`
+      });
+    }
+
+    if (isApproved) { /* در نمای تأییدشده، مقایسه با خودش معنا ندارد */ }
+    else if (calib.decided) {
+      ins.push({
+        kind: calib.changed ? 'info' : 'ok', title: 'اثر کالیبراسیون',
+        text: `برای ${faDigits(calib.decided)} نفر تصمیم ثبت شده است` +
+          (calib.changed
+            ? `، که نمرهٔ ${faDigits(calib.changed)} نفرشان در جلسه تغییر کرده و میانگین تأییدشده ${calib.shift >= 0 ? 'به‌اندازهٔ ' + N(Math.abs(calib.shift)) + ' بالاتر' : 'به‌اندازهٔ ' + N(Math.abs(calib.shift)) + ' پایین‌تر'} از نمرهٔ محاسبه‌شده است. اگر این جابه‌جایی یک‌طرفه و بزرگ باشد، یعنی فرمول با قضاوت واقعی مدیران هم‌راستا نیست و بهتر است وزن‌ها بازبینی شود.`
+            : ` و هیچ‌کدام تغییر نکرده‌اند؛ یعنی خروجی فرمول با قضاوت جلسه هم‌خوان بوده است.`)
+      });
+    } else {
+      ins.push({
+        kind: 'info', title: 'هنوز تأیید نشده',
+        text: `برای هیچ‌کس تصمیم کالیبراسیون ثبت نشده است. در تب «تحلیل و تگ‌ها» می‌توانید برای هر نفر یکی از حالت‌های تأیید را انتخاب کنید تا ستون نمرهٔ تأییدشده در همین نمودار و در خروجی اکسل پر شود.`
+      });
+    }
+
+    return { stats: st, bins: bins, bands: bands, basis: basis, calib: calib, shape: shape,
+             top: top, bottom: bottom, noScore: noScore.map(p => p.name), insights: ins };
+  }
+
   function compute(peopleRows, records, opts) {
     const o = Object.assign({}, DEFAULTS, opts || {});
     const years = o.years && o.years.length ? o.years.slice() : null;
@@ -631,5 +873,6 @@
   return { normText, faDigits, enDigits, tokensFa, tokensLat, simLatFa, simFaFa, canonicalMap, bestFaFor,
            sentiment, LEAN_LABEL,
            toJalali, parseJiraDate, scoreOf, cleanAnswer, SCORE_LABEL,
-           parseStakeholders, parseJiraDoc, parseJiraHtml, compute, TAGS, TAG_ORDER, DEFAULTS };
+           parseStakeholders, parseJiraDoc, parseJiraHtml, compute, TAGS, TAG_ORDER, DEFAULTS,
+           distribution, describe, histogram, quantile, BANDS, bandOf, SHAPE };
 });
